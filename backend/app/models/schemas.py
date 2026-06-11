@@ -1,13 +1,13 @@
 """Pydantic v2 schemas — canonical types from database_schema.md."""
 
-from enum import Enum
+from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
 
 
-class SessionState(str, Enum):
+class SessionState(StrEnum):
     IDLE = "idle"
     GREETING = "greeting"
     LISTENING = "listening"
@@ -25,7 +25,7 @@ class SessionState(str, Enum):
     HELP = "help"
 
 
-class KeralaTheme(str, Enum):
+class KeralaTheme(StrEnum):
     BACKWATERS = "backwaters"
     THEYYAM = "theyyam"
     KATHAKALI = "kathakali"
@@ -59,7 +59,7 @@ class ConversationTurn(BaseModel):
     agent_text_reply: str | None  # clarification Q or ack; replayed as assistant turn
 
 
-class VariantStyle(str, Enum):
+class VariantStyle(StrEnum):
     ILLUSTRATION = "illustration"
     GEOMETRIC = "geometric"
     WATERCOLOR = "watercolor"
