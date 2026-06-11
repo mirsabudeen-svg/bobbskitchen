@@ -111,11 +111,35 @@ Customer selects product → Cart → Checkout
 
 ## Agent Design Principles
 
-All agents are Claude API calls with structured outputs (JSON mode).
+All agents use the Anthropic `tool_use` API to emit structured outputs — **never parse Claude text with regex or string matching**. Each agent defines a single tool (e.g. `submit_story`, `submit_design_strategy`, `submit_recommendations`); Claude is instructed to call it with the required JSON. The tool's `input_schema` is the authoritative contract for that agent's output.
 
 - **Conversation Agent**: Uses `claude-sonnet-4-6`. System prompt in `prompts/conversation.txt`. Extracts structured `Story` JSON from free-form customer input. Kerala cultural themes are injected into system context.
-- **Design Agent**: Uses `claude-sonnet-4-6`. Translates `Story` into image prompts. Generates 4 variant strategies (illustration, geometric, watercolor, minimalist). Enforces print-safe color palettes.
-- **Product Agent**: Uses `claude-haiku-4-5-20251001` (fast, cheaper). Scores product catalog against design complexity + story themes. Returns top-3 recommendations.
+- **Design Agent**: Uses `claude-sonnet-4-6`. Translates `Story` into a `DesignStrategy` (4 `VariantPrompt` objects, each with `prompt`, `negative_prompt`, `color_palette`, `mood`, `width`, `height`). Enforces print-safe color palettes.
+- **Product Agent**: Uses `claude-haiku-4-5-20251001` (fast, cheaper). Scores product catalog against design complexity + story themes. Returns top-3 `ProductRecommendation` objects with `ScoreBreakdown`.
+
+### Variant Styles (definitive — do not change without updating all 3 agents + frontend)
+
+```
+illustration | geometric | watercolor | minimalist
+```
+
+`photorealistic` is explicitly excluded: DTF printing has colour banding and gradient issues with photorealistic images. Kerala illustration and geometric styles produce cleaner prints.
+
+### Pipeline Correlation
+
+Every invocation of the AI pipeline generates a `pipeline_run_id` (UUID) at orchestrator entry. This UUID is written to:
+- `agent_logs.pipeline_run_id` for every agent call in the pipeline run
+- `designs.pipeline_run_id` for the design created in that run
+
+This allows full trace reconstruction: given any `pipeline_run_id`, you can retrieve every agent call, timing, token count, and output for that single customer's generation attempt.
+
+### Prompt Versioning
+
+System prompt files (`prompts/*.txt`) are SHA-1 hashed at application startup. The hash is stored in `agent_logs.prompt_version` on every call. This makes it possible to determine exactly which system prompt version produced any given output, enabling regression detection and rollback attribution.
+
+### Product Config Registry
+
+Per-product design constraints (print dimensions, negative prompt additions, complexity range, design fit scores) are loaded at startup from `prompts/products/{product_id}.txt` into a `PRODUCT_REGISTRY` dict. Adding a new product requires only a new DB row and a new text file — no code changes.
 
 ---
 

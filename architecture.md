@@ -109,30 +109,34 @@ call. Without this, the second clarification turn is incoherent.
 
 ### Design Agent
 - **Model**: `claude-sonnet-4-6`
-- **Input**: `Story` JSON + target product type (optional)
-- **Output**: 4 image generation prompts (one per variant style)
+- **Input**: `Story` JSON (full object, not string-joined) + `ProductHint` (print dimensions, product type)
+- **Output**: `DesignStrategy` — 4 `VariantPrompt` objects via `tool_use` (`submit_design_strategy` tool)
 - **System prompt**: `backend/app/prompts/design.txt`
 - **Responsibilities**:
   - Translate story themes → visual design language
-  - Respect product-specific print area constraints (from docs)
-  - Generate 4 variant strategies: `illustration`, `geometric`, `watercolor`, `minimalist`
+  - Respect product-specific print area constraints (from `ProductHint.print_width_in` / `print_height_in`)
+  - Generate exactly 4 variants: `illustration`, `geometric`, `watercolor`, `minimalist`
+  - Per-variant: `prompt`, `negative_prompt`, `color_palette`, `mood`, `width`, `height`
   - Inject Kerala cultural elements and BOBB brand color palette
   - Enforce print-safe specifications (DPI, bleed, color count)
+- **Persistence order**: `DesignStrategy` is written to `designs.design_strategy_json` **before** image generation begins; if image gen fails the prompts are recoverable for retry without re-calling Claude.
 
 ### Product Agent
 - **Model**: `claude-haiku-4-5-20251001`
-- **Input**: `Story` JSON + selected design metadata
-- **Output**: Top-3 product recommendations with scores and reasons
+- **Input**: `Story` JSON + selected design metadata + live product catalog (queried at call time, not static prompt)
+- **Output**: Top-3 `ProductRecommendation` objects with `ScoreBreakdown` via `tool_use`
 - **System prompt**: `backend/app/prompts/product.txt`
 - **Responsibilities**:
   - Match design complexity/type to product print area capability
   - Score products using: design fit (40%), complexity match (30%), demographics (15%), budget (10%), inventory (5%)
-  - Return ranked recommendations with mockup hints
+  - Return ranked recommendations with structured `MockupHint` (color, size, placement)
+  - Product context is built dynamically from `SELECT * FROM inventory WHERE is_active = true` — not injected from a static prompt file
 
 ### Agent Orchestrator
-- Manages agent call sequence and context threading
-- Passes `Story` from Conversation → Design → Product
-- Handles retries and fallbacks
+- Manages agent call sequence and context threading via a `STORY_PIPELINE` list of `PipelineStep` objects
+- Each `PipelineStep` declares: `name`, `fn`, `timeout_s`, `retry: RetryPolicy`, `fallback`
+- Passes `PipelineContext` (typed dict: `story`, `design_strategy`, `images`, `recommendations`) across steps
+- Generates a `pipeline_run_id` (UUID) at entry; written to `agent_logs` and `designs` for trace correlation
 - Emits WebSocket progress events between agent calls
 
 ---
@@ -142,12 +146,19 @@ call. Without this, the second clarification turn is incoherent.
 ### Interface (Abstract)
 
 ```python
+@dataclass
+class GenerationParams:
+    variants: list[VariantPrompt]    # 4 variant prompts with negative_prompts
+    width: int                       # product print area width in pixels (~300dpi)
+    height: int                      # product print area height in pixels
+    product_type: str
+    workflow_overrides: dict = field(default_factory=dict)  # ComfyUI only
+
 class ImageGenerationService(Protocol):
     async def generate(
-        self, 
-        prompts: list[str],          # 4 variant prompts
+        self,
+        params: GenerationParams,
         session_id: str,
-        product_type: str | None,
     ) -> list[ImageResult]:
         ...
 ```
@@ -155,18 +166,55 @@ class ImageGenerationService(Protocol):
 ### fal.ai Implementation (MVP)
 
 - Endpoint: `fal-ai/flux/dev` or `fal-ai/stable-diffusion-xl`
-- 4 concurrent requests (one per variant)
-- Image size: 1024×1024 (square, crop-safe)
-- Stored to: `cache/designs/{session_id}/v{1-4}.png`
+- 4 concurrent requests (one per variant), each carrying `prompt` + `negative_prompt` + `width` + `height`
+- Dimensions: product-specific (e.g. t-shirt 1024×1229, tote 1024×1024, water bottle 683×1024)
+- Stores to: `cache/designs/{session_id}/v{1-4}.png`
 - Timeout: 30s per image, 60s total
 - Fallback: if 1 variant fails, deliver 3; if 2+ fail → retry once then error
+- `fal_request_id` and `seed` from the response are stored on `design_variants` for debugging and reproduction
 
 ### ComfyUI Implementation (Future)
 
 - Same interface, different transport (HTTP to localhost:8188)
-- Workflow JSON sent to ComfyUI API
-- Same output contract
+- `GenerationParams.workflow_overrides` carries ComfyUI-specific node overrides
 - Enabled via `IMAGE_GEN_PROVIDER=comfyui`
+
+---
+
+## Product Config Registry
+
+A `PRODUCT_REGISTRY` dict is loaded at application startup from `prompts/products/{product_id}.txt` files (one per product). Each entry is a `ProductConfig` dataclass:
+
+```python
+@dataclass
+class ProductConfig:
+    product_id: str
+    name: str
+    print_width_in: float
+    print_height_in: float
+    print_method: str                    # dtf | sublimation | uv | vinyl | embroidery
+    design_system_prompt: str            # loaded from prompts/products/{product_id}.txt
+    complexity_range: tuple[str, str]    # ("simple", "complex")
+    design_fit_scores: dict[str, float]  # {"illustration": 0.95, "geometric": 0.85, ...}
+    negative_prompt_additions: str       # product-specific image gen exclusions
+```
+
+Adding a new product requires only: a new `inventory` DB row + a `prompts/products/{new_id}.txt` file + restart. No application code changes.
+
+---
+
+## Fallback Catalogue
+
+Every pipeline step must define a fallback that produces a usable (if degraded) output rather than failing the session:
+
+| Step | Primary | Fallback | Trigger |
+|---|---|---|---|
+| Conversation Agent | Claude `extract_story` | Guided-input `Story` from customer's raw text + defaults | 2× API failure or JSON parse failure |
+| Design Agent | Claude `generate_prompts` | 4 hardcoded Kerala-themed prompts from `fallback_prompts/{complexity}.json` | 2× API failure |
+| Image Generation | fal.ai 4×concurrent | Deliver 3 variants if 1 fails; show error screen if 2+ fail after 1 retry | Timeout or API error |
+| Product Agent | Claude scoring | Deterministic score from `ProductConfig.design_fit_scores` | 2× API failure |
+
+All fallback activations set `is_fallback=true` on the relevant `designs` or `design_variants` row so they can be filtered from quality metrics.
 
 ---
 

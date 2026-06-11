@@ -51,7 +51,8 @@ CREATE TABLE sessions (
     satisfaction_score  SMALLINT CHECK (satisfaction_score BETWEEN 1 AND 5),
     -- Metadata
     notes           TEXT,
-    device_id       VARCHAR(50)    -- tablet identifier
+    device_id       VARCHAR(50),   -- tablet identifier
+    prompt_variant  VARCHAR(20) NOT NULL DEFAULT 'v1'  -- prompt A/B variant assigned at session creation
 );
 
 CREATE INDEX idx_sessions_state     ON sessions(current_state);
@@ -76,9 +77,12 @@ CREATE TABLE conversation_logs (
     --                             ALTER TABLE ... DROP CONSTRAINT ...; ADD CONSTRAINT ... IN ('text','voice');
     input_type      VARCHAR(10) NOT NULL CHECK (input_type IN ('text')),
     customer_input  TEXT NOT NULL,
-    agent_response  TEXT,               -- raw Claude response
+    agent_response  TEXT,               -- raw Claude JSON response (tool_use input blob)
+    agent_text_reply TEXT,              -- conversational text shown to customer (clarification question or acknowledgement)
     story_extracted JSONB,              -- structured Story JSON (see below)
     clarification_needed BOOLEAN NOT NULL DEFAULT false,
+    clarity_score   NUMERIC(4,3),       -- 0.000–1.000; how complete/unambiguous the story is
+    confidence      NUMERIC(4,3),       -- 0.000–1.000; agent confidence in extracted story
     response_time_ms    INT,
     tokens_input    INT,
     tokens_output   INT,
@@ -112,8 +116,10 @@ CREATE TABLE designs (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id          UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    story_json          JSONB NOT NULL,          -- Story extracted by Conversation Agent
+    story_json          JSONB NOT NULL,          -- canonical Story (final, post-clarification)
+    story_version       SMALLINT NOT NULL DEFAULT 1,  -- incremented if story re-extracted
     design_prompt_base  TEXT NOT NULL,           -- Master prompt from Design Agent
+    design_strategy_json JSONB,                  -- full DesignStrategy (4 VariantPrompts) persisted BEFORE image gen
     design_metadata     JSONB,                   -- complexity, cultural_refs, color_count
     -- FIX ISSUE-08: FK to design_variants.id (UUID), not a positional integer.
     -- NULL until customer selects a variant; set to NOT NULL is enforced at
@@ -124,6 +130,9 @@ CREATE TABLE designs (
     regenerations_count SMALLINT NOT NULL DEFAULT 0,  -- "try different" counter (max 3)
     design_locked       BOOLEAN NOT NULL DEFAULT false,
     locked_at           TIMESTAMPTZ,
+    -- Observability
+    pipeline_run_id     UUID,                    -- correlates all agent_logs for this pipeline run
+    is_fallback         BOOLEAN NOT NULL DEFAULT false,  -- true if any agent used a fallback
     -- Recommendations stored here (no separate table needed — generated once per design)
     recommendations_json        JSONB,
     recommendations_generated_at TIMESTAMPTZ,
@@ -152,13 +161,17 @@ CREATE TABLE design_variants (
     -- The CHECK constraint caused an INSERT violation on every refinement.
     variant_number  SMALLINT NOT NULL,
     is_initial_set  BOOLEAN NOT NULL DEFAULT true,  -- false for refinement-derived variants
-    prompt_used     TEXT NOT NULL,               -- exact prompt sent to image gen
+    prompt_used     TEXT NOT NULL,               -- exact positive prompt sent to image gen
+    negative_prompt TEXT,                        -- exact negative prompt sent to image gen
     style           VARCHAR(30),                 -- illustration | geometric | watercolor | minimalist
     -- image_url: local path served via /cache/ static mount (e.g. /cache/designs/sess/v1.png)
     -- Always a local path in MVP. Never an external URL — download on generation.
     image_url       TEXT,
     generation_time_ms  INT,
     model_used      VARCHAR(80),                 -- e.g. fal-ai/flux/dev
+    fal_request_id  VARCHAR(100),               -- fal.ai's own request ID (for support/billing)
+    generation_seed BIGINT,                      -- seed returned by fal.ai; enables exact replay
+    is_fallback     BOOLEAN NOT NULL DEFAULT false,
     is_refined      BOOLEAN NOT NULL DEFAULT false,
     parent_variant_id UUID REFERENCES design_variants(id),  -- refinement chain; NULL for initial set
     refinement_type  VARCHAR(30),                -- color_scheme | style | mood | focus | elements | size
@@ -351,6 +364,9 @@ CREATE TABLE agent_logs (
     agent_name      VARCHAR(30) NOT NULL,   -- conversation | design | product
     model_used      VARCHAR(50),
     state           VARCHAR(32),
+    pipeline_run_id UUID,                  -- groups all agent calls for one pipeline invocation
+    prompt_version  VARCHAR(40),           -- SHA-1 hash of system prompt file at call time
+    is_fallback     BOOLEAN NOT NULL DEFAULT false,
     tokens_input    INT,
     tokens_output   INT,
     cost_microdollars INT,
@@ -414,37 +430,120 @@ class SessionState(str, Enum):
     ERROR = "error"
     HELP = "help"
 
+class KeralaTheme(str, Enum):
+    BACKWATERS       = "backwaters"
+    THEYYAM          = "theyyam"
+    KATHAKALI        = "kathakali"
+    MONSOON          = "monsoon"
+    FISHING_HERITAGE = "fishing_heritage"
+    COCONUT_PALMS    = "coconut_palms"
+    SPICE_TRADE      = "spice_trade"
+    TEMPLE_ARCH      = "temple_architecture"
+    BEACH            = "beach"
+    BOAT_RACE        = "boat_race"
+    NONE             = "none"
+
 class Story(BaseModel):
-    themes: list[str]
+    themes: list[KeralaTheme]   # controlled vocabulary; validated by KeralaTheme enum
     emotions: list[str]
     keywords: list[str]
     cultural_refs: list[str]
     design_complexity: Literal["simple", "medium", "complex"]
     intent: str
+    raw_customer_text: str      # original unmodified input; passed to Design Agent for grounding
     needs_clarification: bool = False
     clarification_questions: list[str] = []
+    clarity_score: float = 1.0  # 0.0–1.0; how complete/unambiguous the story is
+    confidence: float = 1.0     # 0.0–1.0; agent confidence in extraction
+
+class ConversationTurn(BaseModel):
+    turn_number: int
+    customer_input: str
+    agent_text_reply: str | None  # conversational response (clarification Q or ack); replayed as assistant turn
+
+class VariantStyle(str, Enum):
+    ILLUSTRATION = "illustration"
+    GEOMETRIC    = "geometric"
+    WATERCOLOR   = "watercolor"
+    MINIMALIST   = "minimalist"
+
+class VariantPrompt(BaseModel):
+    style: VariantStyle
+    prompt: str                  # full positive prompt (SDXL/FLUX compatible)
+    negative_prompt: str         # full negative prompt; never empty
+    color_palette: list[str]     # hex codes or named colors
+    mood: str                    # descriptive tag for UI display
+    width: int                   # product-specific pixel width (~300dpi equivalent)
+    height: int
+
+class DesignMetadata(BaseModel):
+    cultural_authenticity_score: float
+    print_feasibility: Literal["excellent", "good", "marginal", "poor"]
+    color_count: int
+    complexity: Literal["simple", "medium", "complex"]
+    estimated_print_time_min: float
+    kerala_themes_used: list[KeralaTheme]
+
+class DesignStrategy(BaseModel):
+    base_story_summary: str      # 1-sentence design brief for display/logging
+    variants: list[VariantPrompt]  # exactly 4
+    design_metadata: DesignMetadata
+    is_fallback: bool = False
 
 class DesignVariant(BaseModel):
     id: UUID
-    variant_number: int        # 1–4 for initial set; 5+ for refinements
+    variant_number: int          # 1–4 for initial set; 5+ for refinements
     is_initial_set: bool
-    style: str                 # illustration | geometric | watercolor | minimalist
+    style: VariantStyle
     prompt_used: str
-    image_url: str | None      # always a local /cache/ path in MVP
+    negative_prompt: str | None
+    image_url: str | None        # always a local /cache/ path in MVP
     generation_time_ms: int | None
+    fal_request_id: str | None   # for fal.ai support queries
+    generation_seed: int | None  # enables exact replay
     is_refined: bool = False
+    is_fallback: bool = False
     parent_variant_id: UUID | None = None
+
+class ImageResult(BaseModel):
+    variant_number: int
+    style: VariantStyle
+    image_path: str              # absolute local path
+    image_url: str               # relative URL served by StaticFiles
+    prompt_used: str
+    negative_prompt_used: str
+    model_used: str
+    fal_request_id: str | None
+    generation_time_ms: int
+    seed: int | None
+    success: bool
+    error: str | None
+
+class ScoreBreakdown(BaseModel):
+    design_fit: float            # weight 40%
+    complexity_match: float      # weight 30%
+    inferred_demographics: float # weight 15%
+    budget_fit: float            # weight 10%
+    inventory_available: bool    # weight 5% (pass/fail)
+
+class MockupHint(BaseModel):
+    suggested_color: str         # must match a value in inventory.colors
+    suggested_size: str | None   # must match a value in inventory.sizes; None if one-size
+    placement: str | None        # e.g. "center_chest"
 
 class ProductRecommendation(BaseModel):
     rank: int
     product_id: str
     product_name: str
-    score: float               # 0.0–1.0
+    score: float                 # 0.0–1.0 weighted composite
+    score_breakdown: ScoreBreakdown
     reasons: list[str]
     price_paise: int
-    print_area: str
+    print_area_width_in: float
+    print_area_height_in: float
     production_time_minutes: int
-    mockup_hint: str | None    # color/size suggestion for mockup render
+    mockup_hint: MockupHint
+    units_available: int         # live from inventory; show "low stock" warning if < 5
 ```
 
 ---
