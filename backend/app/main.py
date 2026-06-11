@@ -16,15 +16,22 @@ from fastapi.staticfiles import StaticFiles
 from app.api import designs, orders, products, sessions, ws
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
+from app.db.base import create_engine, create_session_factory
 
 settings = get_settings()
 configure_logging(debug=settings.debug)
 logger = get_logger("main")
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    # M-03: engine/session_factory live on app.state for test isolation.
+    engine = create_engine(settings)
+    app.state.engine = engine
+    app.state.session_factory = create_session_factory(engine)
     logger.info("startup", port=settings.port, debug=settings.debug)
     yield
+    await engine.dispose()
     logger.info("shutdown")
 
 
