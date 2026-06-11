@@ -1,38 +1,44 @@
-"""Async engine + session factory + FastAPI dependency."""
+"""Async DB engine helpers.
+
+The engine and session factory live on app.state (set in lifespan),
+not in module globals, so tests can inject a different database URL
+without monkeypatching.
+
+Usage in routes:
+    async def my_route(db: AsyncSession = Depends(get_db)): ...
+
+Usage in tests:
+    app.state.session_factory = async_sessionmaker(test_engine, ...)
+"""
 
 from collections.abc import AsyncGenerator
 
+from fastapi import Request
 from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 
-from app.core.config import get_settings
-
-_engine = None
-_session_factory: async_sessionmaker[AsyncSession] | None = None
+from app.core.config import Settings
 
 
-def get_engine():  # type: ignore[no-untyped-def]
-    global _engine, _session_factory
-    if _engine is None:
-        settings = get_settings()
-        _engine = create_async_engine(
-            settings.database_url, pool_size=10, pool_timeout=10, echo=False
-        )
-        _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
-    return _engine
+def create_engine(settings: Settings) -> AsyncEngine:
+    return create_async_engine(
+        settings.database_url,
+        pool_size=10,
+        pool_timeout=10,
+        echo=settings.debug,
+    )
 
 
-def get_session_factory() -> async_sessionmaker[AsyncSession]:
-    get_engine()
-    assert _session_factory is not None
-    return _session_factory
+def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(engine, expire_on_commit=False)
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency yielding an AsyncSession."""
-    factory = get_session_factory()
+async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency — yields a session from app.state.session_factory."""
+    factory: async_sessionmaker[AsyncSession] = request.app.state.session_factory
     async with factory() as session:
         yield session
