@@ -8,13 +8,14 @@ Keeps all SQL out of the agent and API layer.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.db import Design, DesignVariantRow
-from app.models.schemas import DesignStrategy, Story
+from app.models.schemas import DesignStrategy, ProductRecommendation, Story
 from app.services.image_gen import GenerationResult, VariantGenerationResult
 
 
@@ -194,6 +195,38 @@ async def persist_refined_variant(
     )
     await db.commit()
     return variant_id
+
+
+async def persist_recommendations(
+    db: AsyncSession,
+    *,
+    design_id: uuid.UUID,
+    recommendations: list[ProductRecommendation],
+    model_used: str,
+) -> None:
+    """Persist top-3 recommendations into designs.recommendations_json."""
+    await db.execute(
+        update(Design)
+        .where(Design.id == design_id)
+        .values(
+            recommendations_json=[r.model_dump(mode="json") for r in recommendations],
+            recommendations_generated_at=datetime.now(UTC),
+            recommendations_model=model_used,
+        )
+    )
+    await db.commit()
+
+
+async def get_recommendations(
+    db: AsyncSession,
+    design_id: uuid.UUID,
+) -> list[ProductRecommendation] | None:
+    """Return previously persisted recommendations, or None if not generated yet."""
+    result = await db.execute(select(Design).where(Design.id == design_id))
+    design = result.scalar_one_or_none()
+    if design is None or design.recommendations_json is None:
+        return None
+    return [ProductRecommendation(**r) for r in design.recommendations_json]
 
 
 async def next_variant_number(db: AsyncSession, design_id: uuid.UUID) -> int:

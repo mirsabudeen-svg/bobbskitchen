@@ -1,0 +1,33 @@
+[product]
+product_id = tote_bag
+product_name = Kerala Canvas Tote
+category = accessories
+price_paise = 39900
+print_area = 10x10in
+print_area_width_in = 10.0
+print_area_height_in = 10.0
+min_complexity = simple
+max_complexity = medium
+production_time_min = 5
+colors = ["natural_canvas", "black_canvas"]
+sizes = {"one_size": true}
+units_total = 60
+
+[design_fit]
+illustration = 0.80
+geometric = 0.92
+watercolor = 0.75
+minimalist = 0.95
+
+[scoring_hints]
+best_for = geometric, minimalist, simple icons; bold single-element designs; gift-friendly
+not_ideal_for = complex multi-element scenes that need large print area
+placement_default = center_front
+placement_alternatives = none
+low_stock_threshold = 5
+
+[mockup]
+suggested_colors_by_theme = {"backwaters": "natural_canvas", "theyyam": "black_canvas", "kathakali": "black_canvas", "monsoon": "natural_canvas", "fishing_heritage": "natural_canvas", "coconut_palms": "natural_canvas", "spice_trade": "black_canvas", "temple_architecture": "black_canvas", "beach": "natural_canvas", "boat_race": "natural_canvas"}
+default_color = natural_canvas
+placement = center_front
+size_default = one_size

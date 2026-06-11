@@ -104,6 +104,78 @@ _DEFAULT_DESIGN_STRATEGY_OUTPUT: dict[str, Any] = {
     },
 }
 
+_DEFAULT_RECOMMENDATIONS_OUTPUT: dict[str, Any] = {
+    "recommendations": [
+        {
+            "rank": 1,
+            "product_id": "standard_tshirt",
+            "product_name": "Classic Kerala T-Shirt",
+            "score": 0.91,
+            "score_breakdown": {
+                "design_fit": 0.95,
+                "complexity_match": 0.90,
+                "inferred_demographics": 0.88,
+                "budget_fit": 0.85,
+                "inventory_available": True,
+            },
+            "reasons": [
+                "Backwaters theme and nostalgia translate beautifully to the 14×16in print area",
+                "Illustration style produces crisp bold outlines on the DTF fabric surface",
+                "Medium complexity design maximises the Classic T-Shirt's large print canvas",
+            ],
+            "mockup_hint": {
+                "suggested_color": "ocean_navy",
+                "suggested_size": "M",
+                "placement": "center_chest",
+            },
+        },
+        {
+            "rank": 2,
+            "product_id": "premium_tshirt",
+            "product_name": "Heritage Premium T-Shirt",
+            "score": 0.84,
+            "score_breakdown": {
+                "design_fit": 0.90,
+                "complexity_match": 0.88,
+                "inferred_demographics": 0.80,
+                "budget_fit": 0.70,
+                "inventory_available": True,
+            },
+            "reasons": [
+                "Heritage fabric enhances the fishing heritage story's emotional resonance",
+                "Watercolour and illustration styles both work well on premium cotton",
+            ],
+            "mockup_hint": {
+                "suggested_color": "midnight_navy",
+                "suggested_size": "M",
+                "placement": "center_chest",
+            },
+        },
+        {
+            "rank": 3,
+            "product_id": "hoodie",
+            "product_name": "Kerala Story Hoodie",
+            "score": 0.76,
+            "score_breakdown": {
+                "design_fit": 0.92,
+                "complexity_match": 0.80,
+                "inferred_demographics": 0.65,
+                "budget_fit": 0.55,
+                "inventory_available": True,
+            },
+            "reasons": [
+                "Bold illustration style suits the hoodie's 12×14in print area",
+                "Higher price point suits customers who want a premium gift item",
+            ],
+            "mockup_hint": {
+                "suggested_color": "navy_blue",
+                "suggested_size": "M",
+                "placement": "center_chest",
+            },
+        },
+    ]
+}
+
 _DEFAULT_STORY_OUTPUT: dict[str, Any] = {
     "themes": ["backwaters", "fishing_heritage"],
     "emotions": ["nostalgia", "pride"],
@@ -127,6 +199,7 @@ class MockProvider:
             {
                 "submit_story": _DEFAULT_STORY_OUTPUT,
                 "submit_design_strategy": _DEFAULT_DESIGN_STRATEGY_OUTPUT,
+                "submit_recommendations": _DEFAULT_RECOMMENDATIONS_OUTPUT,
             }
             if responses is None
             else responses

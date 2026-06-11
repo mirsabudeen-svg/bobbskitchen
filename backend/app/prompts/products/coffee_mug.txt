@@ -1,0 +1,33 @@
+[product]
+product_id = coffee_mug
+product_name = Kerala Morning Mug
+category = homeware
+price_paise = 34900
+print_area = 8x3in
+print_area_width_in = 8.0
+print_area_height_in = 3.0
+min_complexity = simple
+max_complexity = simple
+production_time_min = 4
+colors = ["white_gloss", "black_matte"]
+sizes = {"330ml": true}
+units_total = 50
+
+[design_fit]
+illustration = 0.50
+geometric = 0.70
+watercolor = 0.45
+minimalist = 0.95
+
+[scoring_hints]
+best_for = minimalist icons, simple silhouettes, small-footprint designs; best as add-on gift
+not_ideal_for = complex scenes, multi-element, watercolour — wrap distorts detail
+placement_default = center_wrap
+placement_alternatives = none
+low_stock_threshold = 5
+
+[mockup]
+suggested_colors_by_theme = {"backwaters": "white_gloss", "theyyam": "black_matte", "kathakali": "black_matte", "monsoon": "white_gloss", "fishing_heritage": "white_gloss", "coconut_palms": "white_gloss", "spice_trade": "black_matte", "temple_architecture": "black_matte", "beach": "white_gloss", "boat_race": "white_gloss"}
+default_color = white_gloss
+placement = center_wrap
+size_default = 330ml

@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api import design as design_api
 from app.api import designs, orders, products, sessions, ws
 from app.api import generate as generate_api
+from app.api import recommendations as recommendations_api
 from app.api import story as story_api
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
@@ -98,6 +99,7 @@ app.include_router(sessions.router, prefix="/api/v1")
 app.include_router(story_api.router, prefix="/api/v1")
 app.include_router(design_api.router, prefix="/api/v1")
 app.include_router(generate_api.router, prefix="/api/v1")
+app.include_router(recommendations_api.router, prefix="/api/v1")
 app.include_router(products.router, prefix="/api/v1")
 app.include_router(designs.router, prefix="/api/v1")
 app.include_router(orders.router, prefix="/api/v1")

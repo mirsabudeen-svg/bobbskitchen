@@ -1,0 +1,33 @@
+[product]
+product_id = premium_tshirt
+product_name = Heritage Premium T-Shirt
+category = apparel
+price_paise = 89900
+print_area = 14x16in
+print_area_width_in = 14.0
+print_area_height_in = 16.0
+min_complexity = medium
+max_complexity = complex
+production_time_min = 7
+colors = ["natural_white", "midnight_navy", "vintage_black", "sand_beige"]
+sizes = {"S": true, "M": true, "L": true, "XL": true, "XXL": true}
+units_total = 80
+
+[design_fit]
+illustration = 0.95
+geometric = 0.85
+watercolor = 0.90
+minimalist = 0.75
+
+[scoring_hints]
+best_for = premium storytelling, gift purchases, complex watercolour and illustration styles
+not_ideal_for = simple designs where premium price is hard to justify
+placement_default = center_chest
+placement_alternatives = full_front, back_print
+low_stock_threshold = 5
+
+[mockup]
+suggested_colors_by_theme = {"backwaters": "midnight_navy", "theyyam": "vintage_black", "kathakali": "vintage_black", "monsoon": "midnight_navy", "fishing_heritage": "midnight_navy", "coconut_palms": "sand_beige", "spice_trade": "vintage_black", "temple_architecture": "vintage_black", "beach": "sand_beige", "boat_race": "midnight_navy"}
+default_color = midnight_navy
+placement = center_chest
+size_default = M
