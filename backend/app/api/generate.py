@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.models.db import Design
 from app.models.schemas import DesignStrategy
-from app.services import session_manager
+from app.services import session_manager, ws_broadcast
 from app.services.design_service import get_design_with_variants, persist_variants
 from app.services.image_gen import ImageGenerationService
 
@@ -109,6 +109,13 @@ async def generate_images(
         else Path("cache/designs")
     )
 
+    # WS: generation started
+    await ws_broadcast.send_generation_started(
+        session_id=session_id,
+        design_id=str(design_id),
+        total=len(strategy.variants),
+    )
+
     svc = ImageGenerationService(provider=image_provider, cache_root=cache_root)
     variant_results = await svc.generate_variants(
         session_id=sid,
@@ -124,6 +131,7 @@ async def generate_images(
         variant_results=variant_results,
     )
 
+    sorted_results = sorted(variant_results, key=lambda x: x.variant_number)
     variants_out = [
         VariantOut(
             variant_id=str(vid),
@@ -138,11 +146,25 @@ async def generate_images(
             success=vr.result.success,
             error=vr.result.error,
         )
-        for vid, vr in zip(
-            variant_ids,
-            sorted(variant_results, key=lambda x: x.variant_number), strict=False,
-        )
+        for vid, vr in zip(variant_ids, sorted_results, strict=False)
     ]
+
+    # WS: individual variant_ready events + completion
+    for vout in variants_out:
+        await ws_broadcast.send_variant_ready(
+            session_id=session_id,
+            design_id=str(design_id),
+            variant_number=vout.variant_number,
+            variant_id=vout.variant_id,
+            style=vout.style,
+            image_url=vout.image_url,
+            success=vout.success,
+        )
+    await ws_broadcast.send_generation_complete(
+        session_id=session_id,
+        design_id=str(design_id),
+        variant_ids=[v.variant_id for v in variants_out],
+    )
 
     return GenerateResponse(
         design_id=str(design_id),

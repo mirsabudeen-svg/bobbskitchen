@@ -10,12 +10,12 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.db import Design, DesignVariantRow
 from app.models.schemas import DesignStrategy, Story
-from app.services.image_gen import VariantGenerationResult
+from app.services.image_gen import GenerationResult, VariantGenerationResult
 
 
 async def create_design_row(
@@ -109,3 +109,100 @@ async def get_design_with_variants(
     )
     variants = list(variants_result.scalars().all())
     return design, variants
+
+
+async def get_variant(
+    db: AsyncSession, variant_id: uuid.UUID
+) -> DesignVariantRow | None:
+    result = await db.execute(
+        select(DesignVariantRow).where(DesignVariantRow.id == variant_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_variant_history(
+    db: AsyncSession, design_id: uuid.UUID
+) -> list[DesignVariantRow]:
+    """Return ALL variants for a design ordered by creation time.
+
+    Includes both initial set (is_initial_set=True) and refined variants.
+    The caller can reconstruct the full lineage tree using parent_variant_id.
+    """
+    result = await db.execute(
+        select(DesignVariantRow)
+        .where(DesignVariantRow.design_id == design_id)
+        .order_by(DesignVariantRow.variant_number)
+    )
+    return list(result.scalars().all())
+
+
+async def select_variant(
+    db: AsyncSession,
+    design_id: uuid.UUID,
+    variant_id: uuid.UUID,
+) -> None:
+    """Set designs.selected_variant_id and mark the design as locked."""
+    await db.execute(
+        update(Design)
+        .where(Design.id == design_id)
+        .values(selected_variant_id=variant_id, design_locked=True)
+    )
+    await db.commit()
+
+
+async def persist_refined_variant(
+    db: AsyncSession,
+    *,
+    design_id: uuid.UUID,
+    parent_variant_id: uuid.UUID,
+    variant_number: int,
+    style: str,
+    refined_prompt: str,
+    refined_negative: str,
+    refinement_type: str,
+    result: GenerationResult,
+) -> uuid.UUID:
+    """Insert a single refined variant row and increment design counters."""
+    variant_id = uuid.uuid4()
+    await db.execute(
+        insert(DesignVariantRow).values(
+            id=variant_id,
+            design_id=design_id,
+            variant_number=variant_number,
+            is_initial_set=False,
+            is_refined=True,
+            prompt_used=refined_prompt,
+            negative_prompt=refined_negative,
+            style=style,
+            image_url=result.image_url,
+            generation_time_ms=result.generation_time_ms,
+            model_used=result.model_used,
+            fal_request_id=result.provider_request_id,
+            generation_seed=result.generation_seed,
+            is_fallback=not result.success,
+            parent_variant_id=parent_variant_id,
+            refinement_type=refinement_type,
+        )
+    )
+    await db.execute(
+        update(Design)
+        .where(Design.id == design_id)
+        .values(
+            refinements_count=Design.refinements_count + 1,
+            regenerations_count=Design.regenerations_count + 1,
+        )
+    )
+    await db.commit()
+    return variant_id
+
+
+async def next_variant_number(db: AsyncSession, design_id: uuid.UUID) -> int:
+    """Return the next available variant number for a design."""
+    result = await db.execute(
+        select(DesignVariantRow.variant_number)
+        .where(DesignVariantRow.design_id == design_id)
+        .order_by(DesignVariantRow.variant_number.desc())
+        .limit(1)
+    )
+    highest = result.scalar_one_or_none()
+    return (highest or 0) + 1
