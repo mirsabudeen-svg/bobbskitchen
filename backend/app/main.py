@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import design as design_api
 from app.api import designs, orders, products, sessions, ws
+from app.api import generate as generate_api
 from app.api import story as story_api
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
@@ -23,6 +24,16 @@ from app.db.base import create_engine, create_session_factory
 settings = get_settings()
 configure_logging(debug=settings.debug)
 logger = get_logger("main")
+
+
+def _make_image_provider():  # type: ignore[no-untyped-def]
+    """Build the image generation provider. MockImageProvider unless FAL_API_KEY set."""
+    from app.services.image_gen import FalAIProvider, MockImageProvider
+    if settings.fal_api_key:
+        logger.info("image_provider", provider="fal_ai")
+        return FalAIProvider(api_key=settings.fal_api_key)
+    logger.info("image_provider", provider="mock")
+    return MockImageProvider()
 
 
 def _make_provider():  # type: ignore[no-untyped-def]
@@ -49,6 +60,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # LLM provider — None if ANTHROPIC_API_KEY not set (tests inject MockProvider).
     app.state.llm_provider = _make_provider()
+
+    # Image provider — MockImageProvider by default; FalAIProvider when FAL_API_KEY set.
+    app.state.image_provider = _make_image_provider()
+    app.state.cache_dir = settings.cache_dir
 
     logger.info(
         "startup",
@@ -82,6 +97,7 @@ app.mount("/cache", StaticFiles(directory=str(cache_root)), name="cache")
 app.include_router(sessions.router, prefix="/api/v1")
 app.include_router(story_api.router, prefix="/api/v1")
 app.include_router(design_api.router, prefix="/api/v1")
+app.include_router(generate_api.router, prefix="/api/v1")
 app.include_router(products.router, prefix="/api/v1")
 app.include_router(designs.router, prefix="/api/v1")
 app.include_router(orders.router, prefix="/api/v1")
