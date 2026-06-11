@@ -14,6 +14,96 @@ from typing import Any
 
 from app.providers.base import LLMProvider, LLMResponse, Message, ToolDefinition
 
+_DEFAULT_DESIGN_STRATEGY_OUTPUT: dict[str, Any] = {
+    "base_story_summary": "Kerala backwaters fishing heritage rendered in four distinct styles.",
+    "primary_kerala_theme": "backwaters",
+    "primary_emotion": "nostalgia",
+    "key_symbols": ["fishing_boat", "coconut_palm", "sunset"],
+    "variants": [
+        {
+            "style": "illustration",
+            "prompt": (
+                "Kerala backwaters folk art illustration, traditional vallam fishing boat "
+                "on still water at sunset, coconut palms silhouette, bold outlines, "
+                "flat colour fills, warm gold #E8C547 and deep navy #0A1A3F palette"
+            ),
+            "negative_prompt": (
+                "photorealistic, photograph, 3d render, blurry, low quality, watermark, "
+                "text overlay, fine gradients, photographic face, realistic skin, NSFW"
+            ),
+            "color_palette": ["#E8C547", "#0A1A3F", "#2D6A4F", "#FAF7F0"],
+            "mood": "warm nostalgia",
+            "width": 4000,
+            "height": 4800,
+        },
+        {
+            "style": "geometric",
+            "prompt": (
+                "Geometric abstract Kerala backwaters, angular tessellation of boat and "
+                "palm shapes, bold chevron water reflections, deep navy #0A1A3F background, "
+                "gold #E8C547 geometric accents, modern design, clean lines"
+            ),
+            "negative_prompt": (
+                "photorealistic, photograph, 3d render, blurry, low quality, watermark, "
+                "text overlay, fine gradients, photographic face, realistic skin, NSFW, "
+                "organic curves"
+            ),
+            "color_palette": ["#0A1A3F", "#E8C547", "#FAF7F0"],
+            "mood": "modern heritage",
+            "width": 4000,
+            "height": 4800,
+        },
+        {
+            "style": "watercolor",
+            "prompt": (
+                "Watercolour Kerala backwaters, bold wet-on-wet washes, fishing boat at "
+                "golden hour, visible brushwork, vibrant saffron #E8833A sky, Kerala "
+                "green #2D6A4F reflections, artistic loose style, expressive"
+            ),
+            "negative_prompt": (
+                "photorealistic, photograph, 3d render, blurry, low quality, watermark, "
+                "text overlay, photographic face, realistic skin, NSFW, soft gradients"
+            ),
+            "color_palette": ["#E8833A", "#2D6A4F", "#E8C547", "#0A1A3F", "#FAF7F0"],
+            "mood": "golden hour",
+            "width": 4000,
+            "height": 4800,
+        },
+        {
+            "style": "minimalist",
+            "prompt": (
+                "Minimalist Kerala fishing boat silhouette, single vallam on horizon line, "
+                "cream #FAF7F0 background, deep navy #0A1A3F silhouette, 2 colours, "
+                "clean negative space, bold simple icon"
+            ),
+            "negative_prompt": (
+                "photorealistic, photograph, 3d render, blurry, low quality, watermark, "
+                "text overlay, fine gradients, photographic face, realistic skin, NSFW, "
+                "complex details, multiple elements"
+            ),
+            "color_palette": ["#FAF7F0", "#0A1A3F"],
+            "mood": "calm simplicity",
+            "width": 4000,
+            "height": 4800,
+        },
+    ],
+    "design_metadata": {
+        "cultural_authenticity_score": 0.92,
+        "print_feasibility": "excellent",
+        "color_count": 5,
+        "complexity": "medium",
+        "estimated_print_time_min": 7.0,
+        "kerala_themes_used": ["backwaters", "fishing_heritage"],
+    },
+    "product_suitability": {
+        "standard_tshirt": 0.95,
+        "premium_tshirt": 0.85,
+        "tote_bag": 0.70,
+        "coffee_mug": 0.40,
+        "hoodie": 0.80,
+    },
+}
+
 _DEFAULT_STORY_OUTPUT: dict[str, Any] = {
     "themes": ["backwaters", "fishing_heritage"],
     "emotions": ["nostalgia", "pride"],
@@ -34,7 +124,12 @@ class MockProvider:
 
     def __init__(self, responses: dict[str, dict[str, Any]] | None = None) -> None:
         self._responses: dict[str, dict[str, Any]] = (
-            {"submit_story": _DEFAULT_STORY_OUTPUT} if responses is None else responses
+            {
+                "submit_story": _DEFAULT_STORY_OUTPUT,
+                "submit_design_strategy": _DEFAULT_DESIGN_STRATEGY_OUTPUT,
+            }
+            if responses is None
+            else responses
         )
         self.calls: list[dict[str, Any]] = []  # introspectable in tests
 
