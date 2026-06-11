@@ -66,7 +66,7 @@
 
 ### Conversation Agent
 - **Model**: `claude-sonnet-4-6`
-- **Input**: Raw customer text (max 500 chars for MVP)
+- **Input**: New customer text + full prior conversation history from `conversation_logs`
 - **Output**: Structured `Story` JSON
 - **System prompt**: `backend/app/prompts/conversation.txt`
 - **Responsibilities**:
@@ -74,6 +74,38 @@
   - Detect Kerala cultural references
   - Classify design complexity (simple / medium / complex)
   - Flag if clarification is needed (max 2 clarification turns)
+
+**FIX ISSUE-01 — Multi-turn context threading**:
+
+Claude has no memory between calls. Every agent call must reconstruct the full
+conversation history from `conversation_logs` and pass it as a `messages` array.
+
+```python
+# Method signature (replaces the single-text version):
+async def extract_story(
+    self,
+    new_input: str,
+    session_id: str,
+    prior_turns: list[ConversationTurn],  # fetched from conversation_logs by session_id
+) -> Story:
+    messages = []
+    for turn in prior_turns:
+        messages.append({"role": "user",      "content": turn.customer_input})
+        if turn.agent_response:
+            messages.append({"role": "assistant", "content": turn.agent_response})
+    messages.append({"role": "user", "content": new_input})
+    # Call Claude with full messages array
+    response = await self.client.messages.create(
+        model=self.model,
+        system=self.system_prompt,
+        messages=messages,
+        ...
+    )
+```
+
+`conversation_logs.agent_response` stores the exact text of any clarification
+question Claude asked, so it can be replayed as an assistant turn on the next
+call. Without this, the second clarification turn is incoherent.
 
 ### Design Agent
 - **Model**: `claude-sonnet-4-6`
@@ -142,12 +174,16 @@ class ImageGenerationService(Protocol):
 
 Single WebSocket connection per tablet session at `/ws/{session_id}`.
 
+> **Source of truth**: `api_contracts.md` is the canonical definition for all
+> WebSocket message payloads. The tables below are a summary only. In case of
+> any discrepancy, `api_contracts.md` wins.
+
 ### Client → Server Message Types
 
 | type | payload | description |
 |---|---|---|
 | `text_input` | `{ text: string }` | Customer story text |
-| `design_select` | `{ variant_id: 1-4 }` | Choose design variant |
+| `design_select` | `{ design_id, variant_id: UUID }` | Choose design variant — UUID of design_variants row |
 | `design_refine` | `{ type, value }` | Refinement pill selection |
 | `product_select` | `{ product_id, size?, color, qty }` | Product selection |
 | `checkout_submit` | `{ name, phone, name_tag }` | Checkout form |
@@ -280,14 +316,23 @@ const tokens = {
 ## Deployment (MVP)
 
 ```
-Windows PC (RTX 3060, 16GB RAM)
+Windows PC (RTX 3060, 16GB RAM) — LAN IP e.g. 192.168.1.10
 ├── PostgreSQL 15 (local, port 5432)
-├── FastAPI backend (port 8420, uvicorn)
+├── FastAPI backend (port 8420, uvicorn --workers 1)  ← single worker required
 ├── React frontend (port 3000, served via nginx or vite preview)
 └── (optional) Redis (port 6379)
 
 Samsung Tab S9 Ultra
-└── Browser pointing to http://<PC-IP>:3000
+└── Browser pointing to http://192.168.1.10:3000
+    VITE_API_BASE_URL=http://192.168.1.10:8420  (set in frontend/.env)
 ```
+
+**Constraints (document in CLAUDE.md)**:
+- Backend **must** run as `--workers 1`. The in-process `active_sessions` WebSocket
+  registry is not shared across worker processes. Multi-worker requires Redis (Phase 2).
+- Never use `localhost` in any client-side URL. Configure `VITE_API_BASE_URL` in the
+  frontend `.env` file with the PC's actual LAN IP.
+- `cache/designs/` is local filesystem. Containerised deploys must mount it as a
+  persistent volume. Object storage migration is a Phase 2 concern.
 
 Future: Docker Compose wrapping all services for easier deployment.

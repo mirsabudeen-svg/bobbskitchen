@@ -1,9 +1,14 @@
 # BOBB AI Platform — API Contracts
 
-**Base URL**: `http://localhost:8420/api/v1`  
-**WebSocket**: `ws://localhost:8420/ws/{session_id}`  
+**Base URL**: `http://<PC_IP>:8420/api/v1`  
+**WebSocket**: `ws://<PC_IP>:8420/ws/{session_id}`  
 **Content-Type**: `application/json`  
 **Auth**: None for MVP (internal LAN only)
+
+> **LAN deployment note**: Never use `localhost` in client-side URLs. The tablet
+> is a separate device; `localhost` resolves to the tablet itself.  
+> `<PC_IP>` is the Windows PC's LAN IP (e.g. `192.168.1.10`), configured once
+> in the frontend `.env` as `VITE_API_BASE_URL=http://192.168.1.10:8420`.
 
 ---
 
@@ -22,9 +27,13 @@ Create a new customer session.
   "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "state": "greeting",
   "created_at": "2026-06-11T10:00:00Z",
-  "ws_url": "ws://localhost:8420/ws/550e8400-e29b-41d4-a716-446655440000"
+  "ws_path": "/ws/550e8400-e29b-41d4-a716-446655440000"
 }
 ```
+
+> **FIX ISSUE-14**: Response returns `ws_path` (relative), not `ws_url` (absolute).  
+> The client constructs the full URL: `ws://${VITE_API_BASE_HOST}${ws_path}`.  
+> Never hardcode `localhost` — the tablet cannot reach the PC via localhost.
 
 ---
 
@@ -121,14 +130,16 @@ Select a design variant.
 
 **Request**:
 ```json
-{ "variant_number": 2 }
+{ "variant_id": "d7f3a1b2-..." }
 ```
+
+> **FIX ISSUE-15**: Field is `variant_id` (UUID), matching the WS message.
 
 **Response `200`**:
 ```json
 {
   "design_id": "abc123...",
-  "selected_variant": 2,
+  "selected_variant_id": "d7f3a1b2-...",
   "session_state": "refining"
 }
 ```
@@ -338,12 +349,64 @@ System health check.
 
 ## WebSocket Protocol
 
-Connect: `ws://localhost:8420/ws/{session_id}`
+Connect: `ws://<PC_IP>:8420/ws/{session_id}`
 
-On connect, server immediately sends:
+#### On connect — server sends `session_resumed`
+
+**FIX ISSUE-20**: The server always sends the full current session snapshot on
+every WebSocket connect (including reconnects after tablet sleep). The client
+uses this to reconstruct the correct screen without any additional REST calls.
+
 ```json
-{ "type": "connected", "session_id": "...", "state": "greeting" }
+{
+  "type": "session_resumed",
+  "session_id": "550e8400-...",
+  "state": "preview",
+  "is_reconnect": true,
+  "session": {
+    "created_at": "2026-06-11T10:00:00Z",
+    "duration_seconds": 47,
+    "customer_name": null
+  },
+  "latest_design": {
+    "design_id": "abc123...",
+    "variants": [
+      { "variant_id": "d7f3a1b2-...", "variant_number": 1, "style": "illustration", "image_url": "/cache/designs/sess_x/v1.png" },
+      { "variant_id": "e8a4c2d3-...", "variant_number": 2, "style": "geometric",    "image_url": "/cache/designs/sess_x/v2.png" },
+      { "variant_id": "f9b5d3e4-...", "variant_number": 3, "style": "watercolor",   "image_url": "/cache/designs/sess_x/v3.png" },
+      { "variant_id": "a1c6e4f5-...", "variant_number": 4, "style": "minimalist",   "image_url": "/cache/designs/sess_x/v4.png" }
+    ],
+    "selected_variant_id": null,
+    "refinements_count": 0,
+    "design_locked": false
+  },
+  "recommendations": null,
+  "order": null
+}
 ```
+
+Fields are `null` when not yet reached in the session flow:
+- `latest_design` is `null` before `GENERATING` completes
+- `recommendations` is `null` before `PRODUCT_SELECTION`
+- `order` is `null` before `CHECKOUT` completes
+
+**Frontend reconnect behaviour**:
+```
+On receive session_resumed:
+  → Read .state to determine which screen to render
+  → Hydrate Zustand store from .session, .latest_design, .recommendations, .order
+  → If state = "generating" → server is still running the pipeline; 
+    show GeneratingScreen, progress events will follow automatically
+  → If state = "preview" → show PreviewScreen with .latest_design.variants
+  → (and so on for each state)
+```
+
+**Server reconnect behaviour**:
+- If the session is in `GENERATING` when the client reconnects, the pipeline
+  continues running server-side (it was never cancelled). Progress events resume
+  automatically once the WS is re-established.
+- If the session is in `ERROR`, send `session_resumed` with `state: "error"` so
+  the client shows the error screen, not a blank screen.
 
 ---
 
@@ -362,9 +425,14 @@ On connect, server immediately sends:
 {
   "type": "design_select",
   "design_id": "abc123",
-  "variant_number": 2
+  "variant_id": "d7f3a1b2-..."
 }
 ```
+
+> **FIX ISSUE-15**: Field is `variant_id` (UUID of the `design_variants` row),
+> not `variant_number` (an integer position). Using the UUID FK is unambiguous
+> for both initial variants and refined variants. `architecture.md` now defers
+> to this file as the single source of truth for all WS message shapes.
 
 #### `design_refine`
 ```json

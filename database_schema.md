@@ -71,7 +71,10 @@ CREATE TABLE conversation_logs (
     session_id      UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     turn_number     SMALLINT NOT NULL,
-    input_type      VARCHAR(10) NOT NULL CHECK (input_type IN ('text', 'voice')),
+    -- FIX ISSUE-34: 'voice' removed until Whisper integration is built (Phase 2).
+    -- Phase 2 migration will add: ALTER TABLE ... ADD COLUMN audio_file_path TEXT;
+    --                             ALTER TABLE ... DROP CONSTRAINT ...; ADD CONSTRAINT ... IN ('text','voice');
+    input_type      VARCHAR(10) NOT NULL CHECK (input_type IN ('text')),
     customer_input  TEXT NOT NULL,
     agent_response  TEXT,               -- raw Claude response
     story_extracted JSONB,              -- structured Story JSON (see below)
@@ -112,74 +115,88 @@ CREATE TABLE designs (
     story_json          JSONB NOT NULL,          -- Story extracted by Conversation Agent
     design_prompt_base  TEXT NOT NULL,           -- Master prompt from Design Agent
     design_metadata     JSONB,                   -- complexity, cultural_refs, color_count
-    selected_variant    SMALLINT CHECK (selected_variant BETWEEN 1 AND 4),
+    -- FIX ISSUE-08: FK to design_variants.id (UUID), not a positional integer.
+    -- NULL until customer selects a variant; set to NOT NULL is enforced at
+    -- design-lock time in application code, not via DB constraint, because the
+    -- referenced row must exist before the FK can be set.
+    selected_variant_id UUID REFERENCES design_variants(id) DEFERRABLE INITIALLY DEFERRED,
     refinements_count   SMALLINT NOT NULL DEFAULT 0,
+    regenerations_count SMALLINT NOT NULL DEFAULT 0,  -- "try different" counter (max 3)
     design_locked       BOOLEAN NOT NULL DEFAULT false,
-    locked_at           TIMESTAMPTZ
+    locked_at           TIMESTAMPTZ,
+    -- Recommendations stored here (no separate table needed — generated once per design)
+    recommendations_json        JSONB,
+    recommendations_generated_at TIMESTAMPTZ,
+    recommendations_model       VARCHAR(50)
 );
 
 CREATE INDEX idx_designs_session ON designs(session_id);
+-- Forward-declared FK; design_variants references designs, so this FK is circular.
+-- PostgreSQL handles circular FKs via DEFERRABLE. No extra index needed here
+-- because design_variants already has idx_variants_design on design_id.
 ```
 
 ---
 
 ### `design_variants`
 
-Each of the 4 (or refined) image variants for a design.
+Each of the 4 initial image variants for a design, plus any refined variants.
 
 ```sql
 CREATE TABLE design_variants (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     design_id       UUID NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    variant_number  SMALLINT NOT NULL CHECK (variant_number BETWEEN 1 AND 4),
-    prompt_used     TEXT NOT NULL,           -- exact prompt sent to image gen
-    style           VARCHAR(30),             -- illustration | geometric | watercolor | minimalist
-    image_url       TEXT,                    -- local cache path or external URL
-    image_path      TEXT,                    -- filesystem path
+    -- FIX ISSUE-07: Removed CHECK (variant_number BETWEEN 1 AND 4).
+    -- Initial variants are 1-4. Refined variants increment beyond 4 (5, 6, 7…).
+    -- The CHECK constraint caused an INSERT violation on every refinement.
+    variant_number  SMALLINT NOT NULL,
+    is_initial_set  BOOLEAN NOT NULL DEFAULT true,  -- false for refinement-derived variants
+    prompt_used     TEXT NOT NULL,               -- exact prompt sent to image gen
+    style           VARCHAR(30),                 -- illustration | geometric | watercolor | minimalist
+    -- image_url: local path served via /cache/ static mount (e.g. /cache/designs/sess/v1.png)
+    -- Always a local path in MVP. Never an external URL — download on generation.
+    image_url       TEXT,
     generation_time_ms  INT,
-    model_used      VARCHAR(80),             -- e.g. fal-ai/flux/dev
-    is_selected     BOOLEAN NOT NULL DEFAULT false,
+    model_used      VARCHAR(80),                 -- e.g. fal-ai/flux/dev
     is_refined      BOOLEAN NOT NULL DEFAULT false,
-    parent_variant_id UUID REFERENCES design_variants(id)  -- refinement chain
+    parent_variant_id UUID REFERENCES design_variants(id),  -- refinement chain; NULL for initial set
+    refinement_type  VARCHAR(30),                -- color_scheme | style | mood | focus | elements | size
+    refinement_value VARCHAR(100)
 );
 
-CREATE INDEX idx_variants_design ON design_variants(design_id);
+CREATE INDEX idx_variants_design   ON design_variants(design_id);
+CREATE INDEX idx_variants_initial  ON design_variants(design_id, is_initial_set);
+-- FK index for order_items → design_variants join (FIX ISSUE-12):
+CREATE INDEX idx_order_items_variant ON order_items(design_variant_id);
 ```
+
+**Variant numbering convention**:
+- Initial generation: variant_number 1, 2, 3, 4 (is_initial_set = true)
+- First refinement applied to variant 2: variant_number 5 (is_initial_set = false, parent_variant_id = id of variant 2)
+- Second refinement: variant_number 6, and so on
+- `designs.selected_variant_id` always points to the UUID of the currently chosen variant
 
 ---
 
-### `product_recommendations`
+### ~~`product_recommendations`~~ — Removed
 
-AI-generated product recommendations per design.
+Product recommendations are stored as JSONB on the `designs` table
+(`designs.recommendations_json`). They are generated once per design, never
+updated, and always consumed in the context of a design. A separate table added
+an unnecessary JOIN. See the `designs` table definition above.
 
-```sql
-CREATE TABLE product_recommendations (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    session_id      UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    design_id       UUID NOT NULL REFERENCES designs(id) ON DELETE CASCADE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    recommendations JSONB NOT NULL,  -- array of {rank, product_id, score, reasons, price}
-    model_used      VARCHAR(50),
-    response_time_ms INT
-);
-
-CREATE INDEX idx_recs_session ON product_recommendations(session_id);
-```
-
-**`recommendations` shape**:
+**`recommendations_json` element shape**:
 ```json
-[
-  {
-    "rank": 1,
-    "product_id": "tshirt_premium",
-    "score": 0.87,
-    "reasons": ["Design fit: illustration", "Perfect complexity match: medium"],
-    "price_paise": 65000,
-    "print_area": "10x12 inches",
-    "production_time_minutes": 7
-  }
-]
+{
+  "rank": 1,
+  "product_id": "tshirt_premium",
+  "score": 0.87,
+  "reasons": ["Design fit: illustration", "Perfect complexity match: medium"],
+  "price_paise": 65000,
+  "print_area": "10x12 inches",
+  "production_time_minutes": 7
+}
 ```
 
 ---
@@ -408,11 +425,15 @@ class Story(BaseModel):
     clarification_questions: list[str] = []
 
 class DesignVariant(BaseModel):
-    variant_number: int        # 1–4
+    id: UUID
+    variant_number: int        # 1–4 for initial set; 5+ for refinements
+    is_initial_set: bool
     style: str                 # illustration | geometric | watercolor | minimalist
     prompt_used: str
-    image_url: str | None
+    image_url: str | None      # always a local /cache/ path in MVP
     generation_time_ms: int | None
+    is_refined: bool = False
+    parent_variant_id: UUID | None = None
 
 class ProductRecommendation(BaseModel):
     rank: int
