@@ -253,12 +253,30 @@ class Order(Base):
     amount_paid_paise: Mapped[int | None] = mapped_column(Integer)
     idempotency_key: Mapped[str | None] = mapped_column(String(36), unique=True)
 
+    # Sprint 9: WhatsApp delivery
+    whatsapp_sent: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    whatsapp_log_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("whatsapp_logs.id", ondelete="SET NULL", use_alter=True,
+                   name="fk_orders_whatsapp_log"),
+        nullable=True,
+    )
+
     # Relationships
     items: Mapped[list["OrderItem"]] = relationship(
         "OrderItem",
         primaryjoin="Order.id == OrderItem.order_id",
         foreign_keys="OrderItem.order_id",
         lazy="select",
+    )
+    whatsapp_logs: Mapped[list["WhatsAppLog"]] = relationship(  # type: ignore[name-defined]
+        "WhatsAppLog",
+        primaryjoin="Order.id == foreign(WhatsAppLog.order_id)",
+        back_populates="order",
+        lazy="select",
+        viewonly=True,
     )
 
     __table_args__ = (

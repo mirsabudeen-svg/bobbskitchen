@@ -18,7 +18,26 @@ class Settings(BaseSettings):
     port: int = 8420
     cache_dir: str = "cache/designs"
 
+    # ── Sprint 9: Twilio WhatsApp ─────────────────────────────────────────────
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_whatsapp_from: str = "whatsapp:+14155238886"  # Twilio sandbox default
+    twilio_template_sid_en: str = ""   # approved EN template SID (HX...)
+    twilio_template_sid_ml: str = ""   # approved ML template SID (HX...)
+    public_media_base_url: str = ""    # e.g. https://cdn.bobb.ai (HTTPS, no auth)
+
+    @property
+    def whatsapp_enabled(self) -> bool:
+        """True only when all required Twilio credentials are present."""
+        return bool(
+            self.twilio_account_sid
+            and self.twilio_auth_token
+            and self.twilio_whatsapp_from
+            and (self.twilio_template_sid_en or self.twilio_template_sid_ml)
+        )
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+

@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
 from app.models.db import DesignVariantRow, Inventory, Order, OrderItem, Session
+from app.models.whatsapp_log import WhatsAppLog
 from app.services.pricing import get_catalog_price
+from app.services.whatsapp import WhatsAppDeliveryResult, send_artwork
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -148,6 +150,7 @@ def _order_dict(order: Order, items: list[OrderItem] | None = None) -> dict:
         "currency": order.currency,
         "staff_notes": order.staff_notes,
         "reprint_count": order.reprint_count,
+        "whatsapp_sent": order.whatsapp_sent,
         "paid_at": (
             order.paid_at.isoformat().replace("+00:00", "Z") if order.paid_at else None
         ),
@@ -184,6 +187,14 @@ async def _generate_short_ref(db: AsyncSession) -> tuple[str, int]:
     count = result.scalar_one() or 0
     seq = count + 1
     return f"B-{seq:03d}", seq
+
+
+async def _get_artwork_for_order(order: Order) -> str | None:
+    """Return the image_url for the first order item that has one."""
+    for item in order.items:
+        if item.image_url:
+            return item.image_url
+    return None
 
 
 async def _broadcast(order: Order, items: list[OrderItem]) -> None:
@@ -434,6 +445,36 @@ async def create_order(
     return _order_dict(order, created_items)
 
 
+@router.get("/{order_id}/whatsapp-log")
+async def get_whatsapp_log(order_id: str, db: AsyncSession = Depends(get_db)) -> dict:
+    """GET /api/v1/orders/{id}/whatsapp-log — WhatsApp delivery history for an order."""
+    try:
+        oid = uuid.UUID(order_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid order_id format") from None
+    result = await db.execute(
+        select(WhatsAppLog)
+        .where(WhatsAppLog.order_id == oid)
+        .order_by(WhatsAppLog.attempted_at.desc())
+    )
+    logs = result.scalars().all()
+    return {
+        "order_id": order_id,
+        "logs": [
+            {
+                "id": str(log.id),
+                "success": log.success,
+                "language": log.language,
+                "message_sid": log.message_sid,
+                "error": log.error,
+                "attempted_at": log.attempted_at.isoformat(),
+                "customer_phone": log.customer_phone[-4:].rjust(len(log.customer_phone), "*"),
+            }
+            for log in logs
+        ],
+    }
+
+
 @router.get("/{order_id}")
 async def get_order(order_id: str, db: AsyncSession = Depends(get_db)) -> dict:
     order = await _get_order_or_404(order_id, db)
@@ -475,6 +516,36 @@ async def update_order_status(
 
     await db.commit()
     await db.refresh(order)
+
+    # ── WhatsApp artwork delivery (fire-and-log, never blocks response) ──────
+    if body.status == "ready" and order.customer_phone:
+        image_url = await _get_artwork_for_order(order)
+        if image_url:
+            result: WhatsAppDeliveryResult = await send_artwork(
+                customer_phone=order.customer_phone,
+                customer_name=order.customer_name or "",
+                short_ref=order.short_ref,
+                image_url=image_url,
+                order_id=str(order.id),
+            )
+            log_entry = WhatsAppLog(
+                order_id=order.id,
+                short_ref=order.short_ref,
+                customer_phone=order.customer_phone,
+                customer_name=order.customer_name or "",
+                language=result.language,
+                image_url=image_url,
+                success=result.success,
+                message_sid=result.message_sid,
+                error=result.error,
+            )
+            db.add(log_entry)
+            order.whatsapp_sent = result.success
+            order.whatsapp_log_id = log_entry.id if result.success else None
+            await db.commit()
+            await db.refresh(order)
+    # ── End WhatsApp section ─────────────────────────────────────────────────
+
     items = await _get_items(order.id, db)
     await _broadcast(order, items)
     return _order_dict(order, items)

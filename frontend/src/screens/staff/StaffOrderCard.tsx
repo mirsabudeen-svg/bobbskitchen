@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../../services/api';
 import type { StaffOrder } from '../../types';
+import { WhatsAppStatus } from './WhatsAppStatus';
 
 interface Props {
   order: StaffOrder;
@@ -147,6 +148,9 @@ export function StaffOrderCard({ order, queuePosition, onStatusChange }: Props) 
           ₹{(order.total_paise / 100).toFixed(0)}
         </span>
       </div>
+
+      {/* WhatsApp delivery status */}
+      <WhatsAppStatus order={order} onRetry={onStatusChange} />
 
       {/* Payment buttons */}
       {!isPaid && order.order_status !== 'collected' && (

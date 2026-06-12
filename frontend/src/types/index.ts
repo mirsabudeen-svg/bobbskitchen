@@ -201,6 +201,7 @@ export interface OrderResponse {
   reprint_count: number;
   paid_at: string | null;
   created_at: string;
+  whatsapp_sent: boolean;
   items?: OrderItemResponse[];
 }
 
