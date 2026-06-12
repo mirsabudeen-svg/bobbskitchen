@@ -55,6 +55,8 @@ export interface GenerateResponse {
   pipeline_run_id: string;
   session_id: string;
   variants: VariantOut[];
+  partial_failure?: boolean;
+  failed_variant_numbers?: number[];
 }
 
 export interface DesignStrategyResponse {
@@ -167,6 +169,16 @@ export const api = {
 
   getSession: (id: string) =>
     request<CreateSessionResponse>(`/sessions/${id}`),
+
+  /** Mark a session abandoned (idle timeout). Errors are ignored — the UI
+   *  resets regardless; the backend row simply stays un-flagged. */
+  abandonSession: async (sessionId: string): Promise<void> => {
+    try {
+      await request<unknown>(`/sessions/${sessionId}/abandon`, { method: 'POST' });
+    } catch {
+      // fire-and-forget
+    }
+  },
 
   submitStory: (sessionId: string, text: string) =>
     request<StoryResponse>(`/sessions/${sessionId}/story`, {

@@ -46,6 +46,8 @@ export interface DesignVariant {
   style: VariantStyle;
   image_url: string | null;
   is_refined?: boolean;
+  /** false when generation failed for this variant (fallback, no image) */
+  success?: boolean;
 }
 
 export interface LatestDesign {

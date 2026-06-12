@@ -89,6 +89,11 @@ export default function App() {
   }, [sessionId, setSessionId, setState]);
 
   const handleIdleTimeout = useCallback(() => {
+    // Sprint 6.2 Fix 1: mark the abandoned session in the backend (fire-and-
+    // forget), then fully reset — including sessionId — so the next customer
+    // gets a brand-new session row (created by the effect above).
+    const sid = useSessionStore.getState().sessionId;
+    if (sid) void api.abandonSession(sid).catch(() => {});
     reset();
     setState(SessionState.IDLE);
   }, [reset, setState]);

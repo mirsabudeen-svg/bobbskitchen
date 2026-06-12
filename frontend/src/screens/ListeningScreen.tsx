@@ -68,6 +68,7 @@ export function ListeningScreen() {
           style: v.style as VariantStyle,
           image_url: v.image_url,
           is_refined: false,
+          success: v.success,
         })),
         selected_variant_id: null,
         refinements_count: 0,

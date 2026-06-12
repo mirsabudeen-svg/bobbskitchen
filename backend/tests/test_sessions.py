@@ -15,6 +15,7 @@ def test_create_session_stub(client: TestClient) -> None:
     assert "created_at" in body
 
 
-def test_get_session_not_implemented(client: TestClient) -> None:
+def test_get_unknown_session_returns_404(client: TestClient) -> None:
+    # GET /sessions/{id} is implemented since Sprint 5 — unknown ids are 404.
     resp = client.get(f"/api/v1/sessions/{uuid.uuid4()}")
-    assert resp.status_code == 501
+    assert resp.status_code == 404

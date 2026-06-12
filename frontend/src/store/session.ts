@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { api } from '../services/api';
 import {
   DesignVariant,
   LatestDesign,
@@ -57,6 +59,7 @@ interface SessionStore {
   applyReconnect: () => void;
   incrementRefinementsCount: () => void;
   reset: () => void;
+  abandonAndReset: () => void;
 }
 
 const INITIAL = {
@@ -75,8 +78,10 @@ const INITIAL = {
   pendingReconnect: null,
 };
 
-export const useSessionStore = create<SessionStore>((set, get) => ({
-  ...INITIAL,
+export const useSessionStore = create<SessionStore>()(
+  persist(
+    (set, get) => ({
+      ...INITIAL,
 
   setSessionId: (id) => set({ sessionId: id }),
   setState: (state) => set({ currentState: state }),
@@ -139,10 +144,27 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         : s.latestDesign,
     })),
 
-  reset: () =>
-    set({
-      ...INITIAL,
-      sessionId: get().sessionId,
-      wsConnected: get().wsConnected,
+      // Sprint 6.2 Fix 1: reset must NOT preserve sessionId — a stale sessionId
+      // lets the next customer's journey run on the previous customer's session
+      // row. Clearing it triggers App.tsx to create a fresh session.
+      reset: () => set({ ...INITIAL }),
+
+      // Mark the backend session abandoned (fire-and-forget), then reset locally.
+      abandonAndReset: () => {
+        const sid = get().sessionId;
+        if (sid) void api.abandonSession(sid).catch(() => {});
+        set({ ...INITIAL });
+      },
     }),
-}));
+    {
+      // Sprint 6.2 Fix 2: persist session identity across browser refreshes so
+      // the session_resumed / SessionResumeOverlay recovery flow can engage.
+      name: 'bobb-session',
+      partialize: (state) => ({
+        sessionId: state.sessionId,
+        currentState: state.currentState,
+        storyText: state.storyText,
+      }),
+    },
+  ),
+);

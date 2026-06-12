@@ -87,6 +87,20 @@ async def select_design_variant(
             detail="Variant not found or does not belong to this design",
         )
 
+    # Sprint 6.2 Fix 4: a fallback/failed variant must never reach production.
+    if variant.image_url is None or variant.is_fallback:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "variant_not_printable",
+                "message": (
+                    "This design variant failed to generate and cannot be "
+                    "selected for production."
+                ),
+                "suggested_action": "regenerate",
+            },
+        )
+
     if design.design_locked and design.selected_variant_id == vid:
         # Idempotent: already selected
         return SelectResponse(
@@ -230,7 +244,11 @@ async def refine_design_variant(
         result=gen_result,
     )
 
-    refinements_used = design.refinements_count + 1
+    # persist_refined_variant already incremented designs.refinements_count and
+    # the ORM UPDATE synchronised the in-session `design` object — re-read the
+    # authoritative value rather than incrementing again (off-by-one fix).
+    await db.refresh(design, ["refinements_count"])
+    refinements_used = design.refinements_count
     refinements_remaining = MAX_REFINEMENTS - refinements_used
 
     # WS: notify client refinement is complete

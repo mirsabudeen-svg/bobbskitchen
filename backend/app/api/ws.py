@@ -33,6 +33,11 @@ logger = get_logger("ws")
 # session_id (str) -> WebSocket. In-process registry; not multi-worker safe.
 active_sessions: dict[str, WebSocket] = {}
 
+# Session ids that have connected at least once during this process lifetime.
+# Used (together with DB progress) to flag reconnects even after a disconnect
+# removed the session from active_sessions.
+seen_sessions: set[str] = set()
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -161,11 +166,21 @@ def _greeting_snapshot() -> dict[str, Any]:
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
-    is_reconnect = session_id in active_sessions
+    was_seen = session_id in active_sessions or session_id in seen_sessions
     active_sessions[session_id] = websocket
-    logger.info("ws_connected", session_id=session_id, is_reconnect=is_reconnect)
+    seen_sessions.add(session_id)
 
     snapshot = await _load_session_snapshot(websocket, session_id)
+
+    # Sprint 6.2 Fix 2: derive is_reconnect from persisted DB progress as well
+    # as the in-process registries (which are wiped on backend restart). A
+    # session with a prior design or an advanced state is a reconnect even
+    # after a restart.
+    has_db_progress = snapshot.get("latest_design") is not None or snapshot.get(
+        "state"
+    ) not in ("idle", "greeting")
+    is_reconnect = was_seen or has_db_progress
+    logger.info("ws_connected", session_id=session_id, is_reconnect=is_reconnect)
     await websocket.send_json(
         {
             "type": "session_resumed",

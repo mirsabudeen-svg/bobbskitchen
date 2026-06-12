@@ -70,6 +70,7 @@ export function useWebSocket(sessionId: string | null) {
           style: m.style,
           image_url: m.image_url,
           is_refined: false,
+          success: m.success,
         });
         break;
       }

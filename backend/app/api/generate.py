@@ -53,6 +53,8 @@ class GenerateResponse(BaseModel):
     pipeline_run_id: str
     session_id: str
     variants: list[VariantOut]
+    partial_failure: bool = False
+    failed_variant_numbers: list[int] = []
 
 
 @router.post("/{session_id}/generate")
@@ -71,6 +73,10 @@ async def generate_images(
     session_row = await session_manager.get_session(db, sid)
     if session_row is None:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Fail fast (503) when no image provider is configured, before any
+    # design resolution work.
+    image_provider = _get_image_provider(request)
 
     # Resolve design_id
     design_id: uuid.UUID
@@ -101,8 +107,6 @@ async def generate_images(
     strategy = DesignStrategy(**design.design_strategy_json)
     pipeline_run_id = design.pipeline_run_id or uuid.uuid4()
 
-    # Get image provider from app.state
-    image_provider = _get_image_provider(request)
     cache_root = (
         Path(request.app.state.cache_dir)
         if hasattr(request.app.state, "cache_dir")
@@ -149,6 +153,20 @@ async def generate_images(
         for vid, vr in zip(variant_ids, sorted_results, strict=False)
     ]
 
+    # Sprint 6.2 Fix 3: total generation failure must NOT return HTTP 200.
+    successful = [v for v in variants_out if v.success]
+    failed = [v for v in variants_out if not v.success]
+    if len(successful) == 0:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "image_generation_failed",
+                "message": "All image variants failed to generate. Please try again.",
+                "failed_count": len(variants_out),
+                "successful_count": 0,
+            },
+        )
+
     # WS: individual variant_ready events + completion
     for vout in variants_out:
         await ws_broadcast.send_variant_ready(
@@ -171,6 +189,8 @@ async def generate_images(
         pipeline_run_id=str(pipeline_run_id),
         session_id=session_id,
         variants=variants_out,
+        partial_failure=len(failed) > 0,
+        failed_variant_numbers=[v.variant_number for v in failed],
     )
 
 

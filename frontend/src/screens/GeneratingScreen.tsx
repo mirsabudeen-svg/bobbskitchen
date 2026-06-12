@@ -40,7 +40,10 @@ export function GeneratingScreen() {
         {Array.from({ length: totalCount }).map((_, i) => {
           const variant = variants[i];
           const hasImage = !!variant?.image_url;
-          const isGenerating = !hasImage;
+          // Sprint 6.2 Fix 3: a received variant with no image failed — show a
+          // failed tile instead of an endless spinner.
+          const isFailed = !!variant && !hasImage && variant.success === false;
+          const isGenerating = !hasImage && !isFailed;
 
           return (
             <motion.div
@@ -92,6 +95,11 @@ export function GeneratingScreen() {
                       transition={{ repeat: Infinity, duration: 1.5, ease: 'linear' }}
                       className="w-8 h-8 rounded-full border-2 border-t-bobb-gold border-bobb-cream/20"
                     />
+                  )}
+                  {isFailed && (
+                    <span className="font-body text-red-400 text-xs font-semibold">
+                      Generation failed
+                    </span>
                   )}
                   <span className="font-body text-bobb-cream/50 text-xs">
                     {STYLE_NAMES[i] ?? `Style ${i + 1}`}

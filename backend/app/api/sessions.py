@@ -19,6 +19,32 @@ async def create_session(db: AsyncSession = Depends(get_db)) -> dict:
     return await session_manager.create_session(db)
 
 
+@router.post("/{session_id}/abandon")
+async def abandon_session(
+    session_id: str, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Mark a session as abandoned (idle timeout / customer walked away).
+
+    Sprint 6.2 Fix 1: prevents the next customer's journey from running on
+    the previous customer's session row.
+    """
+    try:
+        sid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid session_id format") from None
+
+    row = await session_manager.get_session(db, sid)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    row.current_state = "idle"
+    row.completed = False
+    row.abandoned = True
+    await db.commit()
+
+    return {"abandoned": True, "session_id": session_id}
+
+
 @router.get("/{session_id}")
 async def get_session(
     session_id: str, db: AsyncSession = Depends(get_db)

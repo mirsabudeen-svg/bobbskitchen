@@ -8,18 +8,24 @@ for Sprint 1.
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
-from app.db.base import create_engine, create_session_factory
+from app.db.base import create_session_factory
 from app.main import app
 
 
 @pytest.fixture(scope="session")
 def db_engine():
-    """One engine for the whole test session (same DB as CI postgres service)."""
+    """One engine for the whole test session (same DB as CI postgres service).
+
+    NullPool is required: TestClient runs each request in its own event loop,
+    so pooled asyncpg connections cannot be reused across requests — doing so
+    raises "Future attached to a different loop" InterfaceErrors.
+    """
     settings = get_settings()
-    engine = create_engine(settings)
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
     yield engine
     # Engine disposal is sync-incompatible; rely on process exit in test runs.
 
