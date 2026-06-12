@@ -69,6 +69,9 @@ class Session(Base):
     prompt_variant: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default=text("'v1'")
     )
+    # Sprint 10: timestamp when customer first submits their story — used for
+    # story-to-order latency measurement (14-minute journey promise tracking)
+    story_started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
     __table_args__ = (
         CheckConstraint(

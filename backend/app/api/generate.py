@@ -11,6 +11,8 @@ MockImageProvider is used by default; FalAIProvider is enabled when FAL_API_KEY 
 
 from __future__ import annotations
 
+import asyncio
+import time
 import uuid
 from pathlib import Path
 
@@ -23,6 +25,7 @@ from app.db.base import get_db
 from app.models.db import Design
 from app.models.schemas import DesignStrategy
 from app.services import session_manager, ws_broadcast
+from app.services.analytics import track_designs_generated, track_variant_generated
 from app.services.design_service import get_design_with_variants, persist_variants
 from app.services.image_gen import ImageGenerationService
 
@@ -121,11 +124,13 @@ async def generate_images(
     )
 
     svc = ImageGenerationService(provider=image_provider, cache_root=cache_root)
+    _gen_start_ms = int(time.monotonic() * 1000)
     variant_results = await svc.generate_variants(
         session_id=sid,
         variants=strategy.variants,
         seeds=body.seeds,
     )
+    _gen_latency_ms = int(time.monotonic() * 1000) - _gen_start_ms
 
     # Persist variant rows
     variant_ids = await persist_variants(
@@ -165,6 +170,31 @@ async def generate_images(
                 "failed_count": len(variants_out),
                 "successful_count": 0,
             },
+        )
+
+    # Analytics: track generation results (fire-and-forget)
+    asyncio.create_task(
+        track_designs_generated(
+            db,
+            session_id,
+            succeeded=len(successful),
+            failed=len(failed),
+            latency_ms=_gen_latency_ms,
+            styles=[vr.style for vr in sorted_results if vr.style],
+            fal_model=getattr(image_provider, "model_name", "mock"),
+        )
+    )
+    for vid, vr in zip(variant_ids, sorted_results, strict=False):
+        asyncio.create_task(
+            track_variant_generated(
+                db,
+                session_id,
+                str(vid),
+                style=vr.style or "unknown",
+                prompt_digest=(vr.prompt or "")[:100],
+                success=vr.result.success,
+                latency_ms=_gen_latency_ms // max(len(sorted_results), 1),
+            )
         )
 
     # WS: individual variant_ready events + completion

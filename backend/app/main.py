@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api import debug as debug_api
 from app.api import design as design_api
 from app.api import designs, orders, products, sessions, ws
+from app.api import analytics as analytics_api
 from app.api import generate as generate_api
 from app.api import whatsapp_retry as whatsapp_retry_api
 from app.api import recommendations as recommendations_api
@@ -23,6 +24,7 @@ from app.api import story as story_api
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.db.base import create_engine, create_session_factory
+from app.services.scheduler import shutdown_scheduler, start_scheduler
 
 settings = get_settings()
 configure_logging(debug=settings.debug)
@@ -68,6 +70,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.image_provider = _make_image_provider()
     app.state.cache_dir = settings.cache_dir
 
+    await start_scheduler(app.state.session_factory)
+
     logger.info(
         "startup",
         port=settings.port,
@@ -75,6 +79,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         llm_provider="anthropic" if app.state.llm_provider else "none",
     )
     yield
+    await shutdown_scheduler()
     await engine.dispose()
     logger.info("shutdown")
 
@@ -106,6 +111,7 @@ app.include_router(products.router, prefix="/api/v1")
 app.include_router(designs.router, prefix="/api/v1")
 app.include_router(orders.router, prefix="/api/v1")
 app.include_router(whatsapp_retry_api.router, prefix="/api/v1")
+app.include_router(analytics_api.router, prefix="/api/v1")
 app.include_router(debug_api.router, prefix="/api/v1")
 app.include_router(ws.router)
 

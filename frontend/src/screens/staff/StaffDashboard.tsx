@@ -98,6 +98,12 @@ export function StaffDashboard() {
           )}
           <RefLookup />
           <DailyReconciliation date={date} />
+          <a
+            href="/analytics"
+            className="bg-white/10 hover:bg-white/20 text-bobb-gold font-body text-sm px-3 py-1.5 rounded transition-colors"
+          >
+            Analytics
+          </a>
           <button
             onClick={() => void fetchOrders()}
             className="bg-white/10 hover:bg-white/20 text-white font-body text-sm px-3 py-1.5 rounded transition-colors"

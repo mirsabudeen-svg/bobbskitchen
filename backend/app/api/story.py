@@ -11,8 +11,10 @@ The endpoint builds the provider from app.state so tests can inject MockProvider
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -26,6 +28,7 @@ from app.models.db import ConversationLog
 from app.models.schemas import ConversationTurn, Story
 from app.services import session_manager
 from app.services.agent_logger import log_agent_call, log_conversation_turn
+from app.services.analytics import track_story_submitted
 
 router = APIRouter(prefix="/sessions", tags=["story"])
 
@@ -59,6 +62,11 @@ async def extract_story(
     row = await session_manager.get_session(db, sid)
     if row is None:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Set story_started_at on first submission only — used for latency tracking
+    if row.story_started_at is None:
+        row.story_started_at = datetime.now(UTC)
+        await db.commit()
 
     # Load prior conversation turns for multi-turn context reconstruction
     prior_turns = await _load_prior_turns(db, sid)
@@ -129,6 +137,15 @@ async def extract_story(
         tokens_input=meta["input_tokens"],
         tokens_output=meta["output_tokens"],
         execution_ms=execution_ms,
+    )
+
+    asyncio.create_task(
+        track_story_submitted(
+            db,
+            session_id,
+            story_word_count=len(body.text.split()),
+            story_digest=body.text[:100],
+        )
     )
 
     return StoryResponse(

@@ -7,8 +7,11 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import asyncio
+
 from app.db.base import get_db
 from app.services import session_manager
+from app.services.analytics import track_session_abandoned, track_session_started
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -16,7 +19,9 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 @router.post("", status_code=201)
 async def create_session(db: AsyncSession = Depends(get_db)) -> dict:
     """Create a new customer session and return the WebSocket path."""
-    return await session_manager.create_session(db)
+    result = await session_manager.create_session(db)
+    asyncio.create_task(track_session_started(db, result["session_id"]))
+    return result
 
 
 @router.post("/{session_id}/abandon")
@@ -42,6 +47,7 @@ async def abandon_session(
     row.abandoned = True
     await db.commit()
 
+    asyncio.create_task(track_session_abandoned(db, session_id))
     return {"abandoned": True, "session_id": session_id}
 
 

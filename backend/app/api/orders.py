@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, date, datetime
 from typing import Optional
@@ -14,6 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.models.db import DesignVariantRow, Inventory, Order, OrderItem, Session
 from app.models.whatsapp_log import WhatsAppLog
+from app.services.analytics import (
+    track_order_collected,
+    track_order_paid,
+    track_order_placed,
+    track_order_ready,
+    track_reprint,
+    track_whatsapp_result,
+)
 from app.services.pricing import get_catalog_price
 from app.services.whatsapp import WhatsAppDeliveryResult, send_artwork
 
@@ -441,6 +450,27 @@ async def create_order(
     for oi in created_items:
         await db.refresh(oi)
 
+    story_to_order_ms = 0
+    if session_row.story_started_at:
+        story_to_order_ms = int(
+            (datetime.now(UTC) - session_row.story_started_at).total_seconds() * 1000
+        )
+    for oi in created_items:
+        asyncio.create_task(
+            track_order_placed(
+                db,
+                str(order.session_id),
+                str(order.id),
+                order.short_ref,
+                oi.product_id,
+                oi.size,
+                oi.color,
+                oi.quantity,
+                order.total_paise,
+                story_to_order_ms,
+            )
+        )
+
     await _broadcast(order, created_items)
     return _order_dict(order, created_items)
 
@@ -517,6 +547,21 @@ async def update_order_status(
     await db.commit()
     await db.refresh(order)
 
+    if body.status == "ready":
+        asyncio.create_task(track_order_ready(db, str(order.id), order.short_ref, order.created_at))
+    elif body.status == "collected":
+        asyncio.create_task(track_order_collected(db, str(order.id), order.short_ref))
+    elif body.status == "reprinting":
+        items_for_reprint = await _get_items(order.id, db)
+        for item in items_for_reprint:
+            asyncio.create_task(
+                track_reprint(
+                    db, str(order.id), order.short_ref,
+                    color=item.color, product_id=item.product_id,
+                    staff_notes=body.staff_notes,
+                )
+            )
+
     # ── WhatsApp artwork delivery (fire-and-log, never blocks response) ──────
     if body.status == "ready" and order.customer_phone:
         image_url = await _get_artwork_for_order(order)
@@ -544,6 +589,12 @@ async def update_order_status(
             order.whatsapp_log_id = log_entry.id if result.success else None
             await db.commit()
             await db.refresh(order)
+            asyncio.create_task(
+                track_whatsapp_result(
+                    db, str(order.id), order.short_ref,
+                    success=result.success, language=result.language, error=result.error,
+                )
+            )
     # ── End WhatsApp section ─────────────────────────────────────────────────
 
     items = await _get_items(order.id, db)
@@ -576,6 +627,14 @@ async def record_payment(
 
     await db.commit()
     await db.refresh(order)
+
+    asyncio.create_task(
+        track_order_paid(
+            db, str(order.id), order.short_ref,
+            body.payment_method, order.amount_paid_paise or order.total_paise,
+        )
+    )
+
     items = await _get_items(order.id, db)
     await _broadcast(order, items)
     return _order_dict(order, items)

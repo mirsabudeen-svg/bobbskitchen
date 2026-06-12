@@ -10,6 +10,7 @@ import { IdleWarningOverlay } from './components/IdleWarningOverlay';
 import { SessionResumeOverlay } from './components/SessionResumeOverlay';
 import { StaffPinGate } from './components/StaffPinGate';
 import { StaffDashboard } from './screens/staff/StaffDashboard';
+import { AnalyticsDashboard } from './screens/analytics/AnalyticsDashboard';
 import { IdleScreen } from './screens/IdleScreen';
 import { GreetingScreen } from './screens/GreetingScreen';
 import { ListeningScreen } from './screens/ListeningScreen';
@@ -73,6 +74,15 @@ export default function App() {
     return (
       <StaffPinGate>
         <StaffDashboard />
+      </StaffPinGate>
+    );
+  }
+
+  // Analytics dashboard served at /analytics — PIN-protected
+  if (window.location.pathname === '/analytics') {
+    return (
+      <StaffPinGate>
+        <AnalyticsDashboard />
       </StaffPinGate>
     );
   }
