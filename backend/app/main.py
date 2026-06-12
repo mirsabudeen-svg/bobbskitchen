@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.api import debug as debug_api
 from app.api import design as design_api
 from app.api import designs, orders, products, sessions, ws
 from app.api import generate as generate_api
@@ -103,6 +104,7 @@ app.include_router(recommendations_api.router, prefix="/api/v1")
 app.include_router(products.router, prefix="/api/v1")
 app.include_router(designs.router, prefix="/api/v1")
 app.include_router(orders.router, prefix="/api/v1")
+app.include_router(debug_api.router, prefix="/api/v1")
 app.include_router(ws.router)
 
 

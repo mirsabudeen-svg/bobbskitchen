@@ -1,15 +1,9 @@
-"""Test fixtures.
-
-The DB engine is injected via app.state so tests use the same DATABASE_URL
-as CI (postgres service) without touching the module-global engine from Sprint 0.
-Using TestClient (sync) keeps tests simple — no anyio/asyncio fixture juggling
-for Sprint 1.
-
-Sprint 8 additions: async fixtures (setup_db, db, client as AsyncClient),
-factory helpers (make_order_payload, seed_variant, seed_kiosk_session) for
-load/simulation/staff/recovery tests.
+"""
+Sprint 8 conftest — adapted for BOBB model layout (app.models.db).
+Place this file alongside the sprint8 test directories or import from it.
 """
 
+import asyncio
 import os
 import uuid
 from collections.abc import AsyncGenerator
@@ -17,50 +11,46 @@ from collections.abc import AsyncGenerator
 import pytest
 import pytest_asyncio
 from faker import Faker
-from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.core.config import get_settings
-from app.db.base import create_session_factory, get_db
 from app.main import app
-from app.models.db import Base, Design, DesignVariantRow, Session as KioskSession
+from app.db.base import Base, get_db
+from app.models.db import Design, DesignVariantRow, Order, OrderItem, Session as KioskSession
 
 fake = Faker("en_IN")
 
-# ---------------------------------------------------------------------------
-# Sprint 8 — isolated async test DB
-# ---------------------------------------------------------------------------
 TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
     "postgresql+asyncpg://bobb:bobb@localhost:5432/bobb_test",
 )
 
-_test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool, echo=False)
-_TestSessionLocal = async_sessionmaker(_test_engine, expire_on_commit=False)
+test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool, echo=False)
+TestSessionLocal = async_sessionmaker(test_engine, expire_on_commit=False)
 
 
 @pytest_asyncio.fixture(scope="session")
 async def setup_db():
-    async with _test_engine.begin() as conn:
+    async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield
-    async with _test_engine.begin() as conn:
+    async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest_asyncio.fixture
-async def db(setup_db) -> AsyncGenerator[AsyncSession, None]:  # type: ignore[override]
-    async with _TestSessionLocal() as session:
+async def db(setup_db) -> AsyncGenerator[AsyncSession, None]:
+    async with TestSessionLocal() as session:
         async with session.begin():
             yield session
             await session.rollback()
 
 
 @pytest_asyncio.fixture
-async def async_client(db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+async def client(db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     async def override_get_db():
         yield db
 
@@ -71,16 +61,18 @@ async def async_client(db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides.clear()
 
 
-# ---------------------------------------------------------------------------
-# Factory helpers used by sprint8 tests via: from tests.conftest import ...
-# ---------------------------------------------------------------------------
-
 def make_session_payload() -> dict:
-    return {"device_id": str(uuid.uuid4()), "customer_name": fake.name()}
+    return {
+        "device_id": str(uuid.uuid4()),
+        "customer_name": fake.name(),
+    }
 
 
 def make_story_payload() -> dict:
-    return {"story_text": fake.sentence(nb_words=20), "voice_tone": "warm"}
+    return {
+        "story_text": fake.sentence(nb_words=20),
+        "voice_tone": "warm",
+    }
 
 
 def make_order_payload(
@@ -98,7 +90,8 @@ def make_order_payload(
         "items": [
             {
                 "design_variant_id": variant_id,
-                "product_id": "tshirt-crew",   # unknown → price check skipped
+                # Unknown product ID — price validation skipped gracefully
+                "product_id": "tshirt-crew",
                 "product_name": "Crew Neck",
                 "size": size,
                 "color": "Black",
@@ -108,7 +101,7 @@ def make_order_payload(
             }
         ],
     }
-    headers: dict[str, str] = {}
+    headers = {}
     if idempotency_key:
         headers["Idempotency-Key"] = idempotency_key
     return payload, headers
@@ -118,7 +111,7 @@ async def seed_variant(
     db: AsyncSession,
     image_url: str = "https://cdn.bobb.ai/test.png",
 ) -> DesignVariantRow:
-    """Seed Session + Design + DesignVariantRow without the AI pipeline."""
+    """Create a minimal Session + Design + DesignVariantRow for test seeding."""
     session_row = KioskSession(id=uuid.uuid4(), current_state="greeting")
     db.add(session_row)
     await db.flush()
@@ -155,29 +148,3 @@ async def seed_kiosk_session(db: AsyncSession) -> KioskSession:
     db.add(session)
     await db.flush()
     return session
-
-
-@pytest.fixture(scope="session")
-def db_engine():
-    """One engine for the whole test session (same DB as CI postgres service).
-
-    NullPool is required: TestClient runs each request in its own event loop,
-    so pooled asyncpg connections cannot be reused across requests — doing so
-    raises "Future attached to a different loop" InterfaceErrors.
-    """
-    settings = get_settings()
-    engine = create_async_engine(settings.database_url, poolclass=NullPool)
-    yield engine
-    # Engine disposal is sync-incompatible; rely on process exit in test runs.
-
-
-@pytest.fixture(scope="session")
-def db_session_factory(db_engine):
-    return create_session_factory(db_engine)
-
-
-@pytest.fixture
-def client(db_session_factory: async_sessionmaker) -> TestClient:
-    """TestClient with app.state wired to the test DB engine."""
-    app.state.session_factory = db_session_factory
-    return TestClient(app)
