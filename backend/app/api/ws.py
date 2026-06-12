@@ -33,6 +33,24 @@ logger = get_logger("ws")
 # session_id (str) -> WebSocket. In-process registry; not multi-worker safe.
 active_sessions: dict[str, WebSocket] = {}
 
+
+async def broadcast_order_update(order_dict: dict) -> None:
+    """Broadcast an order_update event to all connected WebSocket clients.
+
+    Both customer tablets and the staff tablet receive the message.
+    Customers' useWebSocket ignores unknown event types; the staff
+    useStaffWebSocket handler picks it up.
+    """
+    payload = json.dumps({"type": "order_update", "order": order_dict})
+    dead: list[str] = []
+    for sid, ws in list(active_sessions.items()):
+        try:
+            await ws.send_text(payload)
+        except Exception:
+            dead.append(sid)
+    for sid in dead:
+        active_sessions.pop(sid, None)
+
 # Session ids that have connected at least once during this process lifetime.
 # Used (together with DB progress) to flag reconnects even after a disconnect
 # removed the session from active_sessions.

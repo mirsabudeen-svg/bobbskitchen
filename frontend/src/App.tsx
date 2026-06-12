@@ -8,6 +8,8 @@ import { SessionState } from './types';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import { IdleWarningOverlay } from './components/IdleWarningOverlay';
 import { SessionResumeOverlay } from './components/SessionResumeOverlay';
+import { StaffPinGate } from './components/StaffPinGate';
+import { StaffDashboard } from './screens/staff/StaffDashboard';
 import { IdleScreen } from './screens/IdleScreen';
 import { GreetingScreen } from './screens/GreetingScreen';
 import { ListeningScreen } from './screens/ListeningScreen';
@@ -66,6 +68,14 @@ const IDLE_TIMEOUT_ACTIVE_STATES: SessionState[] = [
 ];
 
 export default function App() {
+  // Staff interface served at /staff — PIN-protected, no customer state machine
+  if (window.location.pathname === '/staff') {
+    return (
+      <StaffPinGate>
+        <StaffDashboard />
+      </StaffPinGate>
+    );
+  }
   const sessionId = useSessionStore((s) => s.sessionId);
   const currentState = useSessionStore((s) => s.currentState);
   const pendingReconnect = useSessionStore((s) => s.pendingReconnect);

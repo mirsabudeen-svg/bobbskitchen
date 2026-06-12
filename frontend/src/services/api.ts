@@ -148,9 +148,10 @@ export interface RecommendationResponse {
 // ---------------------------------------------------------------------------
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const { headers: extraHeaders, ...restInit } = init ?? {};
   const resp = await fetch(`${BASE_URL}/api/v1${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    ...restInit,
   });
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
@@ -215,28 +216,62 @@ export const api = {
       method: 'POST',
     }),
 
-  createOrder: (body: {
-    session_id: string;
-    customer_name: string;
-    customer_phone?: string;
-    name_tag_text?: string;
-    items: Array<{
-      design_variant_id: string;
-      product_id: string;
-      product_name: string;
-      size: string | null;
-      color: string;
-      quantity: number;
-      unit_price_paise: number;
-    }>;
-  }) =>
+  createOrder: (
+    body: {
+      session_id: string;
+      customer_name: string;
+      customer_phone?: string;
+      items: Array<{
+        design_variant_id: string;
+        product_id: string;
+        product_name: string;
+        size: string;
+        color: string;
+        quantity: number;
+        unit_price_paise: number;
+        name_tag_text?: string;
+      }>;
+    },
+    idempotencyKey?: string,
+  ) =>
     request<import('../types').OrderResponse>('/orders', {
       method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
       body: JSON.stringify(body),
     }),
 
   getOrder: (orderId: string) =>
     request<import('../types').OrderResponse>(`/orders/${orderId}`),
+
+  listOrders: (params?: { status?: string; date?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.date) qs.set('date', params.date);
+    const q = qs.toString();
+    return request<import('../types').OrderListResponse>(`/orders${q ? `?${q}` : ''}`);
+  },
+
+  lookupOrderByRef: (ref: string) =>
+    request<{ order: import('../types').StaffOrder }>(
+      `/orders/lookup?ref=${encodeURIComponent(ref)}`,
+    ),
+
+  updateOrderStatus: (orderId: string, status: string, staffNotes?: string) =>
+    request<import('../types').OrderResponse>(`/orders/${orderId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, staff_notes: staffNotes }),
+    }),
+
+  recordPayment: (orderId: string, paymentMethod: 'cash' | 'upi', amountPaise?: number) =>
+    request<import('../types').OrderResponse>(`/orders/${orderId}/payment`, {
+      method: 'PATCH',
+      body: JSON.stringify({ payment_method: paymentMethod, amount_paise: amountPaise }),
+    }),
+
+  getDailyReconciliation: (date: string) =>
+    request<import('../types').ReconciliationData>(
+      `/orders/reconciliation?date=${date}`,
+    ),
 };
 
 export function wsUrl(wsPath: string): string {

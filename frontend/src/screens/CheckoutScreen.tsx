@@ -16,11 +16,20 @@ export function CheckoutScreen() {
   const setCustomerName = useSessionStore((s) => s.setCustomerName);
   const setCustomerPhone = useSessionStore((s) => s.setCustomerPhone);
   const setOrderId = useSessionStore((s) => s.setOrderId);
+  const setShortRef = useSessionStore((s) => s.setShortRef);
   const setState = useSessionStore((s) => s.setState);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState(false);
+  // Price mismatch state — shown when server returns 409 price_mismatch
+  const [priceMismatch, setPriceMismatch] = useState<{
+    catalogPricePaise: number;
+  } | null>(null);
+
+  // One idempotency key per checkout screen mount. Survives retry on error
+  // but a new key is generated if the user navigates away and comes back.
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   if (!selectedProduct) {
     setState(SessionState.CART);
@@ -32,7 +41,11 @@ export function CheckoutScreen() {
       (v) => v.variant_id === latestDesign.selected_variant_id,
     ) ?? latestDesign?.variants[0];
 
-  const lineTotal = selectedProduct.price_rupees * quantity;
+  const confirmedPricePaise = priceMismatch
+    ? priceMismatch.catalogPricePaise
+    : selectedProduct.price_paise;
+  const confirmedPriceRupees = confirmedPricePaise / 100;
+  const lineTotal = confirmedPriceRupees * quantity;
 
   async function handleConfirm() {
     if (!customerName.trim()) {
@@ -44,31 +57,57 @@ export function CheckoutScreen() {
       return;
     }
     const product = selectedProduct;
+    const size = product.mockup_hint?.suggested_size;
+    if (!size) {
+      setError('Please go back and select a size.');
+      return;
+    }
 
     setLoading(true);
     setError(null);
+    setPriceMismatch(null);
+
     try {
-      const order = await api.createOrder({
-        session_id: sessionId,
-        customer_name: customerName.trim(),
-        customer_phone: customerPhone.trim() || undefined,
-        name_tag_text: nameTagText.trim() || undefined,
-        items: [
-          {
-            design_variant_id: selectedVariant.variant_id,
-            product_id: product.product_id,
-            product_name: product.product_name,
-            size: product.mockup_hint?.suggested_size ?? null,
-            color: product.mockup_hint?.suggested_color ?? 'natural',
-            quantity,
-            unit_price_paise: product.price_paise,
-          },
-        ],
-      });
+      const order = await api.createOrder(
+        {
+          session_id: sessionId,
+          customer_name: customerName.trim(),
+          customer_phone: customerPhone.trim() || undefined,
+          items: [
+            {
+              design_variant_id: selectedVariant.variant_id,
+              product_id: product.product_id,
+              product_name: product.product_name,
+              size,
+              color: product.mockup_hint?.suggested_color ?? 'natural',
+              quantity,
+              unit_price_paise: confirmedPricePaise,
+              name_tag_text: nameTagText.trim() || undefined,
+            },
+          ],
+        },
+        idempotencyKey,
+      );
       setOrderId(order.order_id);
+      if (order.short_ref) setShortRef(order.short_ref);
       setState(SessionState.PRODUCTION);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not place order. Please try again.');
+      if (e instanceof Error) {
+        // Check for price mismatch 409
+        const msg = e.message;
+        const priceMismatchMatch = msg.match(/"catalog_price_paise":(\d+)/);
+        if (priceMismatchMatch) {
+          setPriceMismatch({ catalogPricePaise: parseInt(priceMismatchMatch[1], 10) });
+          setError(
+            `Price updated to ₹${parseInt(priceMismatchMatch[1], 10) / 100}. ` +
+            'Tap "Confirm Order" again to proceed at the new price.',
+          );
+        } else {
+          setError(msg);
+        }
+      } else {
+        setError('Could not place order. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -91,7 +130,7 @@ export function CheckoutScreen() {
           Your details
         </h2>
         <p className="font-body text-bobb-navy/50 text-base mt-1">
-          So we can prepare your garment and let you know when it's ready.
+          So we can prepare your garment and call your name when it's ready.
         </p>
       </div>
 
@@ -143,7 +182,7 @@ export function CheckoutScreen() {
           className="w-full border-2 border-bobb-navy/20 rounded-button px-5 py-4 font-body text-bobb-navy text-lg outline-none focus:border-bobb-gold transition-colors placeholder-bobb-navy/30"
         />
         <p className="font-body text-bobb-navy/40 text-xs mt-1">
-          We'll send your design preview before printing
+          Show your order reference at the counter when collecting
         </p>
       </motion.div>
 
@@ -168,7 +207,7 @@ export function CheckoutScreen() {
               {selectedProduct.product_name}
             </p>
             <p className="font-body text-bobb-navy/50 text-xs capitalize mt-0.5">
-              {selectedVariant?.style ?? '—'} · Qty {quantity}
+              {selectedVariant?.style ?? '—'} · {selectedProduct.mockup_hint?.suggested_size ?? '?'} · Qty {quantity}
               {nameTagText ? ` · Tag: "${nameTagText}"` : ''}
             </p>
           </div>
@@ -188,7 +227,7 @@ export function CheckoutScreen() {
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="text-red-600 text-sm mb-4"
+          className={`text-sm mb-4 ${priceMismatch ? 'text-bobb-saffron' : 'text-red-600'}`}
         >
           {error}
         </motion.p>
@@ -210,7 +249,11 @@ export function CheckoutScreen() {
           loading={loading}
           onClick={() => void handleConfirm()}
         >
-          {loading ? 'Placing order…' : 'Confirm Order →'}
+          {loading
+            ? 'Placing order…'
+            : priceMismatch
+            ? `Confirm at ₹${lineTotal.toFixed(0)} →`
+            : 'Confirm Order →'}
         </Button>
       </div>
     </motion.div>

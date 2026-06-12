@@ -20,7 +20,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import CHAR, JSONB, TIMESTAMP, UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -239,19 +239,40 @@ class Order(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
 
+    # Sprint 7 ops columns
+    short_ref: Mapped[str | None] = mapped_column(String(10), unique=True)
+    daily_sequence: Mapped[int | None] = mapped_column(Integer)
+    staff_notes: Mapped[str | None] = mapped_column(Text)
+    reprint_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    reprint_of_order_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("order_items.id"), nullable=True
+    )
+    paid_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    amount_paid_paise: Mapped[int | None] = mapped_column(Integer)
+    idempotency_key: Mapped[str | None] = mapped_column(String(36), unique=True)
+
+    # Relationships
+    items: Mapped[list["OrderItem"]] = relationship(
+        "OrderItem",
+        primaryjoin="Order.id == OrderItem.order_id",
+        foreign_keys="OrderItem.order_id",
+        lazy="select",
+    )
+
     __table_args__ = (
         CheckConstraint(
-            "payment_method IN ('upi', 'card', 'cash')",
-            name="ck_orders_payment_method",
+            "payment_method IS NULL OR payment_method IN ('upi', 'card', 'cash')",
+            name="ck_orders_payment_method_v2",
         ),
         CheckConstraint(
-            "payment_status IN ('pending', 'completed', 'failed', 'refunded')",
-            name="ck_orders_payment_status",
+            "payment_status IN ('pending', 'paid')",
+            name="ck_orders_payment_status_v2",
         ),
         CheckConstraint(
-            "order_status IN ('pending', 'queued', 'printing', 'pressing', "
-            "'stitching', 'complete', 'cancelled')",
-            name="ck_orders_order_status",
+            "order_status IN ('pending', 'printing', 'ready', 'failed', 'reprinting', 'collected')",
+            name="ck_orders_order_status_v2",
         ),
         Index("idx_orders_session", "session_id"),
         Index("idx_orders_status", "order_status", "created_at"),
@@ -279,9 +300,23 @@ class OrderItem(Base):
     unit_price_paise: Mapped[int] = mapped_column(Integer, nullable=False)
     subtotal_paise: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    # Sprint 7 ops: print spec denormalised at order creation
+    image_url: Mapped[str | None] = mapped_column(Text)
+    print_width_in: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    print_height_in: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    print_placement: Mapped[str | None] = mapped_column(String(50))
+    name_tag_text: Mapped[str | None] = mapped_column(String(15))
+
+    # Relationship to design variant (for future use; print spec is denormalized)
+    design_variant: Mapped["DesignVariantRow"] = relationship(
+        "DesignVariantRow",
+        primaryjoin="OrderItem.design_variant_id == DesignVariantRow.id",
+        foreign_keys="OrderItem.design_variant_id",
+        lazy="select",
+    )
+
     __table_args__ = (
         Index("idx_items_order", "order_id"),
-        # FK index for order_items -> design_variants join (FIX ISSUE-12)
         Index("idx_order_items_variant", "design_variant_id"),
     )
 

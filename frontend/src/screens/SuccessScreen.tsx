@@ -5,12 +5,10 @@ import { SessionState } from '../types';
 
 export function SuccessScreen() {
   const selectedProduct = useSessionStore((s) => s.selectedProduct);
-  const orderId = useSessionStore((s) => s.orderId);
+  const shortRef = useSessionStore((s) => s.shortRef);
   const customerName = useSessionStore((s) => s.customerName);
   const reset = useSessionStore((s) => s.reset);
   const setState = useSessionStore((s) => s.setState);
-
-  const orderRef = orderId ? orderId.slice(-6).toUpperCase() : null;
 
   function handleReset() {
     reset();
@@ -49,7 +47,7 @@ export function SuccessScreen() {
         </h2>
         {selectedProduct && (
           <p className="font-body text-white/70 text-xl">
-            Your {selectedProduct.product_name} is being printed
+            Your {selectedProduct.product_name} is on its way
           </p>
         )}
         <p className="font-body text-white/50 text-base mt-2">
@@ -57,8 +55,8 @@ export function SuccessScreen() {
         </p>
       </motion.div>
 
-      {/* Order reference for pick-up */}
-      {orderRef && (
+      {/* Order reference for pickup */}
+      {shortRef && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -66,10 +64,10 @@ export function SuccessScreen() {
           className="bg-white/15 rounded-2xl px-8 py-4 text-center"
         >
           <p className="font-body text-white/60 text-xs uppercase tracking-widest mb-1">
-            Your order number
+            Your order reference
           </p>
           <p className="font-display text-bobb-gold text-4xl font-bold tracking-widest">
-            #{orderRef}
+            {shortRef}
           </p>
           <p className="font-body text-white/50 text-xs mt-1">
             Quote this when collecting your garment

@@ -164,11 +164,11 @@ export interface RefinementCompleteMessage {
 }
 
 // ---------------------------------------------------------------------------
-// Order types
+// Order types (customer-facing)
 // ---------------------------------------------------------------------------
 
 export interface OrderItemResponse {
-  order_item_id: string;
+  id: string;
   design_variant_id: string;
   product_id: string;
   product_name: string;
@@ -177,23 +177,75 @@ export interface OrderItemResponse {
   quantity: number;
   unit_price_paise: number;
   subtotal_paise: number;
+  name_tag_text: string | null;
+  image_url: string | null;
+  print_width_in: number | null;
+  print_height_in: number | null;
+  print_placement: string | null;
 }
 
 export interface OrderResponse {
   order_id: string;
+  short_ref: string | null;
   session_id: string;
   order_status: string;
   payment_status: string;
+  payment_method: string | null;
   customer_name: string;
   customer_phone: string | null;
-  name_tag_text: string | null;
   subtotal_paise: number;
-  tax_paise: number;
   total_paise: number;
   total_rupees: number;
   currency: string;
+  staff_notes: string | null;
+  reprint_count: number;
+  paid_at: string | null;
   created_at: string;
   items?: OrderItemResponse[];
+}
+
+// ---------------------------------------------------------------------------
+// Staff types
+// ---------------------------------------------------------------------------
+
+export type OrderStatus =
+  | 'pending'
+  | 'printing'
+  | 'ready'
+  | 'failed'
+  | 'reprinting'
+  | 'collected';
+
+export interface StaffOrder extends OrderResponse {
+  order_status: OrderStatus;
+  items: OrderItemResponse[];
+}
+
+export interface OrderListResponse {
+  orders: StaffOrder[];
+  count: number;
+  date: string;
+}
+
+export interface ReconciliationData {
+  date: string;
+  total_orders: number;
+  paid_orders: number;
+  unpaid_orders: number;
+  cash_total_paise: number;
+  upi_total_paise: number;
+  grand_total_paise: number;
+  failed_orders: number;
+  reprinted_orders: number;
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket — order update event
+// ---------------------------------------------------------------------------
+
+export interface OrderUpdateMessage {
+  type: 'order_update';
+  order: StaffOrder;
 }
 
 export interface PongMessage {
@@ -218,6 +270,7 @@ export type ServerMessage =
   | VariantSelectedMessage
   | RefinementStartedMessage
   | RefinementCompleteMessage
+  | OrderUpdateMessage
   | PongMessage
   | ErrorMessage
   | { type: string; [key: string]: unknown };

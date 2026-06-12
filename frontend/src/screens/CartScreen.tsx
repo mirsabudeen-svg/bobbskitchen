@@ -1,7 +1,11 @@
 import { motion } from 'framer-motion';
+import { useState } from 'react';
 import { Button } from '../components/Button';
 import { useSessionStore } from '../store/session';
 import { SessionState } from '../types';
+
+const SIZES = ['S', 'M', 'L', 'XL', 'XXL'] as const;
+type Size = typeof SIZES[number];
 
 export function CartScreen() {
   const selectedProduct = useSessionStore((s) => s.selectedProduct);
@@ -10,20 +14,39 @@ export function CartScreen() {
   const nameTagText = useSessionStore((s) => s.nameTagText);
   const setQuantity = useSessionStore((s) => s.setQuantity);
   const setNameTagText = useSessionStore((s) => s.setNameTagText);
+  const selectProduct = useSessionStore((s) => s.selectProduct);
   const setState = useSessionStore((s) => s.setState);
+
+  const suggestedSize = (selectedProduct?.mockup_hint?.suggested_size ?? null) as Size | null;
+  const [selectedSize, setSelectedSize] = useState<Size | null>(suggestedSize);
+  const [sizeError, setSizeError] = useState(false);
 
   if (!selectedProduct) {
     setState(SessionState.PRODUCT_SELECTION);
     return null;
   }
 
+  const product = selectedProduct;
+
   const selectedVariant =
     latestDesign?.variants.find(
       (v) => v.variant_id === latestDesign.selected_variant_id,
     ) ?? latestDesign?.variants[0];
 
-  const unitPrice = selectedProduct.price_rupees;
+  const unitPrice = product.price_rupees;
   const lineTotal = unitPrice * quantity;
+
+  function handleCheckout() {
+    if (!selectedSize) {
+      setSizeError(true);
+      return;
+    }
+    selectProduct({
+      ...product,
+      mockup_hint: { ...product.mockup_hint, suggested_size: selectedSize },
+    });
+    setState(SessionState.CHECKOUT);
+  }
 
   return (
     <motion.div
@@ -72,6 +95,50 @@ export function CartScreen() {
         </div>
       </motion.div>
 
+      {/* Size selector */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.12 }}
+        className="bg-white rounded-card border border-bobb-navy/10 p-5 mb-4"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <p className="font-body text-bobb-navy font-semibold">
+            Size <span className="text-red-500">*</span>
+          </p>
+          {sizeError && (
+            <p className="font-body text-red-500 text-xs">Please select a size</p>
+          )}
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {SIZES.map((s) => (
+            <button
+              key={s}
+              onClick={() => {
+                setSelectedSize(s);
+                setSizeError(false);
+              }}
+              className={[
+                'w-12 h-12 rounded-button font-body font-semibold text-sm border-2 transition-colors',
+                selectedSize === s
+                  ? 'bg-bobb-navy border-bobb-navy text-white'
+                  : sizeError
+                  ? 'border-red-300 text-bobb-navy/60 hover:border-bobb-navy/40'
+                  : 'border-bobb-navy/20 text-bobb-navy/60 hover:border-bobb-gold',
+              ].join(' ')}
+              aria-pressed={selectedSize === s}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+        {suggestedSize && (
+          <p className="font-body text-bobb-navy/40 text-xs mt-2">
+            Suggested: {suggestedSize}
+          </p>
+        )}
+      </motion.div>
+
       {/* Quantity picker */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
@@ -114,7 +181,7 @@ export function CartScreen() {
           <div>
             <p className="font-body text-bobb-navy font-semibold">Name tag</p>
             <p className="font-body text-bobb-navy/40 text-xs mt-0.5">
-              Optional — hand-stitched inside the garment
+              Optional — printed inside the garment
             </p>
           </div>
           <span className="font-body text-bobb-navy/30 text-xs">
@@ -163,11 +230,7 @@ export function CartScreen() {
         >
           ← Change
         </Button>
-        <Button
-          size="lg"
-          fullWidth
-          onClick={() => setState(SessionState.CHECKOUT)}
-        >
+        <Button size="lg" fullWidth onClick={handleCheckout}>
           Checkout — ₹{lineTotal.toFixed(0)} →
         </Button>
       </div>

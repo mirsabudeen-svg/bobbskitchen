@@ -43,6 +43,7 @@ interface SessionStore {
   customerName: string;
   customerPhone: string;
   orderId: string | null;
+  shortRef: string | null;
 
   // UX state
   pipelineError: string | null;
@@ -66,6 +67,7 @@ interface SessionStore {
   setCustomerName: (name: string) => void;
   setCustomerPhone: (phone: string) => void;
   setOrderId: (id: string) => void;
+  setShortRef: (ref: string) => void;
   setPipelineError: (msg: string | null) => void;
   setPendingReconnect: (data: PendingReconnect | null) => void;
   applyReconnect: () => void;
@@ -91,6 +93,7 @@ const INITIAL = {
   customerName: '',
   customerPhone: '',
   orderId: null,
+  shortRef: null,
   pipelineError: null,
   pendingReconnect: null,
 };
@@ -144,6 +147,7 @@ export const useSessionStore = create<SessionStore>()(
   setCustomerName: (name) => set({ customerName: name }),
   setCustomerPhone: (phone) => set({ customerPhone: phone }),
   setOrderId: (id) => set({ orderId: id }),
+  setShortRef: (ref) => set({ shortRef: ref }),
 
   setPipelineError: (msg) => set({ pipelineError: msg }),
 
@@ -187,6 +191,8 @@ export const useSessionStore = create<SessionStore>()(
         sessionId: state.sessionId,
         currentState: state.currentState,
         storyText: state.storyText,
+        orderId: state.orderId,
+        shortRef: state.shortRef,
       }),
     },
   ),
