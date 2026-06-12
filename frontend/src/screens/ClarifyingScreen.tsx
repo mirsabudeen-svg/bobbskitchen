@@ -1,14 +1,69 @@
 import { motion } from 'framer-motion';
+import { useState } from 'react';
 import { Button } from '../components/Button';
+import { api } from '../services/api';
 import { useSessionStore } from '../store/session';
-import { SessionState } from '../types';
+import { SessionState, VariantStyle } from '../types';
 
 export function ClarifyingScreen() {
+  const sessionId = useSessionStore((s) => s.sessionId);
   const extractedStory = useSessionStore((s) => s.extractedStory);
   const setState = useSessionStore((s) => s.setState);
+  const setLatestDesign = useSessionStore((s) => s.setLatestDesign);
+  const setPipelineError = useSessionStore((s) => s.setPipelineError);
 
-  const question = extractedStory?.clarification_questions?.[0]
-    ?? 'Could you tell us a bit more about your story?';
+  const [loading, setLoading] = useState(false);
+
+  const question =
+    extractedStory?.clarification_questions?.[0] ??
+    'Could you tell us a bit more about your story?';
+
+  async function handleContinue() {
+    if (!sessionId || !extractedStory) {
+      setState(SessionState.LISTENING);
+      return;
+    }
+    setLoading(true);
+    setPipelineError(null);
+    try {
+      setState(SessionState.THINKING);
+      const storyForDesign = {
+        ...extractedStory,
+        clarification_questions: extractedStory.clarification_questions ?? [],
+      };
+      const designResp = await api.generateDesign(sessionId, storyForDesign);
+      setState(SessionState.GENERATING);
+      setLatestDesign({
+        design_id: designResp.design_id,
+        variants: [],
+        selected_variant_id: null,
+        refinements_count: 0,
+        design_locked: false,
+      });
+
+      const genResp = await api.generateImages(sessionId, designResp.design_id);
+      setLatestDesign({
+        design_id: designResp.design_id,
+        variants: genResp.variants.map((v) => ({
+          variant_id: v.variant_id,
+          variant_number: v.variant_number,
+          style: v.style as VariantStyle,
+          image_url: v.image_url,
+          is_refined: false,
+        })),
+        selected_variant_id: null,
+        refinements_count: 0,
+        design_locked: false,
+      });
+
+      setState(SessionState.PREVIEW);
+    } catch (e) {
+      setPipelineError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
+      setState(SessionState.LISTENING);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <motion.div
@@ -30,21 +85,27 @@ export function ClarifyingScreen() {
           {question}
         </h2>
         <p className="font-body text-bobb-navy/50 text-base">
-          Your additional detail will help us create a more personal design.
+          A little more detail helps us create something truly personal for you.
         </p>
       </div>
 
-      <div className="flex flex-col gap-4 w-full max-w-sm">
-        <Button size="lg" fullWidth onClick={() => setState(SessionState.LISTENING)}>
+      <div className="flex flex-col gap-3 w-full max-w-sm">
+        <Button
+          size="lg"
+          fullWidth
+          onClick={() => setState(SessionState.LISTENING)}
+          disabled={loading}
+        >
           Add More Detail →
         </Button>
         <Button
           variant="ghost"
           size="lg"
           fullWidth
-          onClick={() => setState(SessionState.THINKING)}
+          loading={loading}
+          onClick={() => void handleContinue()}
         >
-          Continue Anyway
+          {loading ? 'Creating your designs…' : 'Continue Anyway'}
         </Button>
       </div>
     </motion.div>

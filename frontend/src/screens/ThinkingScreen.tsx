@@ -8,6 +8,8 @@ const PHRASES = [
   'Weaving the art strategy…',
 ];
 
+const PHRASE_DURATION = 2.5; // seconds each phrase is visible
+
 export function ThinkingScreen() {
   return (
     <motion.div
@@ -16,8 +18,9 @@ export function ThinkingScreen() {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
-      className="min-h-screen bg-bobb-navy flex flex-col items-center justify-center gap-12"
+      className="min-h-screen bg-bobb-navy flex flex-col items-center justify-center gap-10"
     >
+      {/* Spinning ring */}
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -31,28 +34,46 @@ export function ThinkingScreen() {
         />
       </motion.div>
 
+      {/* Dots + cycling phrases */}
       <div className="text-center">
         <LoadingPulse />
-        <motion.div className="mt-8 h-8 overflow-hidden">
+
+        {/* Fix: relative wrapper so absolute phrases stack correctly */}
+        <div className="relative mt-8 h-8 overflow-hidden w-72">
           {PHRASES.map((phrase, i) => (
             <motion.p
               key={phrase}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: [0, 1, 1, 0], y: [20, 0, 0, -20] }}
               transition={{
-                delay: i * 2,
-                duration: 2,
-                times: [0, 0.15, 0.85, 1],
+                delay: i * PHRASE_DURATION,
+                duration: PHRASE_DURATION,
+                times: [0, 0.12, 0.88, 1],
               }}
               className="font-display text-bobb-cream text-xl absolute inset-x-0 text-center"
             >
               {phrase}
             </motion.p>
           ))}
-        </motion.div>
+        </div>
       </div>
 
-      <p className="font-body text-bobb-cream/40 text-sm">
+      {/* Fake progress bar + time estimate */}
+      <div className="w-64 flex flex-col gap-3">
+        <div className="h-1 rounded-full bg-bobb-cream/10 overflow-hidden">
+          <motion.div
+            className="h-full rounded-full bg-bobb-gold"
+            initial={{ width: '0%' }}
+            animate={{ width: '100%' }}
+            transition={{ duration: 10, ease: 'easeInOut' }}
+          />
+        </div>
+        <p className="font-body text-bobb-cream/40 text-sm text-center">
+          Usually takes about 10 seconds
+        </p>
+      </div>
+
+      <p className="font-body text-bobb-cream/30 text-xs">
         Step 2 of 3 — Understanding your story
       </p>
     </motion.div>

@@ -7,6 +7,12 @@ import {
   Story,
 } from '../types';
 
+interface PendingReconnect {
+  state: SessionState;
+  latest_design: LatestDesign | null;
+  recommendations: ProductRecommendation[] | null;
+}
+
 interface SessionStore {
   // Session identity
   sessionId: string | null;
@@ -29,6 +35,10 @@ interface SessionStore {
   selectedProductId: string | null;
   selectedProduct: ProductRecommendation | null;
 
+  // UX state
+  pipelineError: string | null;
+  pendingReconnect: PendingReconnect | null;
+
   // Actions
   setSessionId: (id: string) => void;
   setState: (state: SessionState) => void;
@@ -42,6 +52,10 @@ interface SessionStore {
   setSelectedVariantId: (id: string) => void;
   setRecommendations: (recs: ProductRecommendation[] | null) => void;
   selectProduct: (rec: ProductRecommendation) => void;
+  setPipelineError: (msg: string | null) => void;
+  setPendingReconnect: (data: PendingReconnect | null) => void;
+  applyReconnect: () => void;
+  incrementRefinementsCount: () => void;
   reset: () => void;
 }
 
@@ -57,6 +71,8 @@ const INITIAL = {
   recommendations: null,
   selectedProductId: null,
   selectedProduct: null,
+  pipelineError: null,
+  pendingReconnect: null,
 };
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -101,5 +117,32 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   selectProduct: (rec) =>
     set({ selectedProductId: rec.product_id, selectedProduct: rec }),
 
-  reset: () => set({ ...INITIAL, sessionId: get().sessionId }),
+  setPipelineError: (msg) => set({ pipelineError: msg }),
+
+  setPendingReconnect: (data) => set({ pendingReconnect: data }),
+
+  applyReconnect: () => {
+    const pr = get().pendingReconnect;
+    if (!pr) return;
+    set({
+      currentState: pr.state,
+      latestDesign: pr.latest_design,
+      recommendations: pr.recommendations,
+      pendingReconnect: null,
+    });
+  },
+
+  incrementRefinementsCount: () =>
+    set((s) => ({
+      latestDesign: s.latestDesign
+        ? { ...s.latestDesign, refinements_count: (s.latestDesign.refinements_count ?? 0) + 1 }
+        : s.latestDesign,
+    })),
+
+  reset: () =>
+    set({
+      ...INITIAL,
+      sessionId: get().sessionId,
+      wsConnected: get().wsConnected,
+    }),
 }));

@@ -27,9 +27,25 @@ export function useWebSocket(sessionId: string | null) {
     switch (msg.type) {
       case 'session_resumed': {
         const m = msg as SessionResumedMessage;
-        store.setState(m.state as SessionState);
-        store.setLatestDesign(m.latest_design);
-        store.setRecommendations(m.recommendations);
+        const resumedState = m.state as SessionState;
+        // On a genuine reconnect with prior in-progress state, surface the
+        // recovery interstitial so the customer (or a new customer at the
+        // kiosk) can choose to continue or start fresh.
+        const hasProgress =
+          m.is_reconnect &&
+          resumedState !== SessionState.IDLE &&
+          resumedState !== SessionState.GREETING;
+        if (hasProgress) {
+          store.setPendingReconnect({
+            state: resumedState,
+            latest_design: m.latest_design,
+            recommendations: m.recommendations,
+          });
+        } else {
+          store.setState(resumedState);
+          store.setLatestDesign(m.latest_design);
+          store.setRecommendations(m.recommendations);
+        }
         break;
       }
 

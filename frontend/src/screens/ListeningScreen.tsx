@@ -14,21 +14,27 @@ const EXAMPLES = [
 export function ListeningScreen() {
   const sessionId = useSessionStore((s) => s.sessionId);
   const storyText = useSessionStore((s) => s.storyText);
+  const pipelineError = useSessionStore((s) => s.pipelineError);
   const setStoryText = useSessionStore((s) => s.setStoryText);
   const setExtractedStory = useSessionStore((s) => s.setExtractedStory);
   const setLatestDesign = useSessionStore((s) => s.setLatestDesign);
   const setState = useSessionStore((s) => s.setState);
+  const setPipelineError = useSessionStore((s) => s.setPipelineError);
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   async function handleSubmit() {
-    if (!sessionId || storyText.trim().length < 10) return;
+    if (!sessionId) return;
+    const trimmed = storyText.trim();
+    setSubmitAttempted(true);
+    if (trimmed.length < 10) return;
+
     setLoading(true);
-    setError(null);
+    setPipelineError(null);
     try {
       setState(SessionState.THINKING);
-      const storyResp = await api.submitStory(sessionId, storyText.trim());
+      const storyResp = await api.submitStory(sessionId, trimmed);
       setExtractedStory({
         ...storyResp.story,
         needs_clarification: storyResp.needs_clarification,
@@ -36,6 +42,12 @@ export function ListeningScreen() {
           ? [storyResp.clarification_question]
           : [],
       });
+
+      // If the AI needs more info, pause and let the customer clarify
+      if (storyResp.needs_clarification) {
+        setState(SessionState.CLARIFYING);
+        return;
+      }
 
       const designResp = await api.generateDesign(sessionId, storyResp.story);
       setState(SessionState.GENERATING);
@@ -64,7 +76,8 @@ export function ListeningScreen() {
 
       setState(SessionState.PREVIEW);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
+      // Store the error so it survives the state transition back to LISTENING
+      setPipelineError(e instanceof Error ? e.message : 'Something went wrong. Please try again.');
       setState(SessionState.LISTENING);
     } finally {
       setLoading(false);
@@ -73,6 +86,7 @@ export function ListeningScreen() {
 
   const charCount = storyText.trim().length;
   const isReady = charCount >= 10 && !loading;
+  const showMinLengthHint = submitAttempted && charCount < 10;
 
   return (
     <motion.div
@@ -81,7 +95,7 @@ export function ListeningScreen() {
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -30 }}
       transition={{ duration: 0.35 }}
-      className="min-h-screen bg-bobb-cream flex flex-col items-center justify-center px-8 py-12 gap-8"
+      className="min-h-screen bg-bobb-cream flex flex-col items-center px-8 py-12 pb-28"
     >
       <div className="w-full max-w-2xl">
         <motion.div
@@ -91,7 +105,7 @@ export function ListeningScreen() {
           className="mb-6"
         >
           <p className="font-body text-bobb-saffron text-sm uppercase tracking-widest mb-2">
-            Step 1 of 3
+            Your Story
           </p>
           <h2 className="font-display text-bobb-navy text-4xl font-bold">
             Share your story
@@ -111,31 +125,37 @@ export function ListeningScreen() {
               'w-full h-48 rounded-card border-2 p-5 font-body text-lg text-bobb-navy',
               'bg-white placeholder-bobb-navy/30 resize-none outline-none transition-colors',
               'focus:border-bobb-gold',
-              error ? 'border-red-400' : 'border-bobb-navy/20',
+              pipelineError || showMinLengthHint ? 'border-red-400' : 'border-bobb-navy/20',
             ].join(' ')}
             placeholder="I grew up…"
             value={storyText}
-            onChange={(e) => setStoryText(e.target.value)}
+            onChange={(e) => {
+              setStoryText(e.target.value);
+              setPipelineError(null);
+            }}
             maxLength={600}
             disabled={loading}
           />
-          <div className="flex justify-between mt-2 text-sm text-bobb-navy/40">
-            <span>{charCount < 10 ? `${10 - charCount} more characters needed` : ''}</span>
-            <span>{charCount}/600</span>
+          <div className="flex justify-between mt-2 text-sm">
+            <span className="text-red-500">
+              {showMinLengthHint ? `${10 - charCount} more characters needed` : ''}
+            </span>
+            <span className="text-bobb-navy/40">{charCount}/600</span>
           </div>
         </motion.div>
 
-        {error && (
+        {pipelineError && (
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="mt-2 text-red-600 text-sm"
           >
-            {error}
+            {pipelineError}
           </motion.p>
         )}
 
-        {!storyText && (
+        {/* Example prompts — visible until the customer has typed a meaningful amount */}
+        {charCount < 40 && !loading && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -154,31 +174,27 @@ export function ListeningScreen() {
             ))}
           </motion.div>
         )}
+      </div>
 
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.35 }}
-          className="mt-6 flex gap-4"
+      {/* Sticky action bar */}
+      <div className="fixed bottom-0 inset-x-0 bg-bobb-cream/95 backdrop-blur-sm border-t border-bobb-navy/10 px-8 py-4 flex gap-4 z-10">
+        <Button
+          variant="ghost"
+          size="lg"
+          onClick={() => setState(SessionState.GREETING)}
+          disabled={loading}
         >
-          <Button
-            variant="ghost"
-            size="lg"
-            onClick={() => setState(SessionState.GREETING)}
-            disabled={loading}
-          >
-            ← Back
-          </Button>
-          <Button
-            size="lg"
-            fullWidth
-            loading={loading}
-            disabled={!isReady}
-            onClick={() => void handleSubmit()}
-          >
-            {loading ? 'Creating your design…' : 'Create My Design →'}
-          </Button>
-        </motion.div>
+          ← Back
+        </Button>
+        <Button
+          size="lg"
+          fullWidth
+          loading={loading}
+          disabled={!isReady}
+          onClick={() => void handleSubmit()}
+        >
+          {loading ? 'Creating your design…' : 'Create My Design →'}
+        </Button>
       </div>
     </motion.div>
   );
