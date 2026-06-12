@@ -1,4 +1,4 @@
-/** TypeScript types mirroring backend Pydantic schemas (database_schema.md). */
+/** TypeScript types mirroring backend Pydantic schemas. */
 
 export enum SessionState {
   IDLE = 'idle',
@@ -20,6 +20,26 @@ export enum SessionState {
 
 export type VariantStyle = 'illustration' | 'geometric' | 'watercolor' | 'minimalist';
 
+export type RefinementType =
+  | 'more_minimal'
+  | 'more_cultural'
+  | 'more_modern'
+  | 'more_premium'
+  | 'different_colors'
+  | 'different_layout';
+
+export interface Story {
+  themes: string[];
+  emotions: string[];
+  keywords: string[];
+  cultural_refs: string[];
+  design_complexity: string;
+  intent: string;
+  raw_customer_text: string;
+  needs_clarification: boolean;
+  clarification_questions?: string[];
+}
+
 export interface DesignVariant {
   variant_id: string;
   variant_number: number;
@@ -36,16 +56,40 @@ export interface LatestDesign {
   design_locked: boolean;
 }
 
+export interface ScoreBreakdown {
+  design_fit: number;
+  complexity_match: number;
+  inferred_demographics: number;
+  budget_fit: number;
+  inventory_available: boolean;
+}
+
+export interface MockupHint {
+  suggested_color: string;
+  suggested_size: string | null;
+  placement: string | null;
+}
+
 export interface ProductRecommendation {
   rank: number;
   product_id: string;
   product_name: string;
   score: number;
+  score_breakdown: ScoreBreakdown;
   reasons: string[];
   price_paise: number;
-  print_area: string;
+  price_rupees: number;
+  print_area_width_in: number;
+  print_area_height_in: number;
   production_time_minutes: number;
+  mockup_hint: MockupHint;
+  units_available: number;
+  low_stock: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// WebSocket server message types
+// ---------------------------------------------------------------------------
 
 export interface SessionResumedMessage {
   type: 'session_resumed';
@@ -69,6 +113,54 @@ export interface StateChangeMessage {
   timestamp: string;
 }
 
+export interface GenerationStartedMessage {
+  type: 'generation_started';
+  design_id: string;
+  total_variants: number;
+  timestamp: string;
+}
+
+export interface VariantReadyMessage {
+  type: 'variant_ready';
+  design_id: string;
+  variant_number: number;
+  variant_id: string;
+  style: VariantStyle;
+  image_url: string | null;
+  success: boolean;
+  timestamp: string;
+}
+
+export interface GenerationCompleteMessage {
+  type: 'generation_complete';
+  design_id: string;
+  variant_ids: string[];
+  timestamp: string;
+}
+
+export interface VariantSelectedMessage {
+  type: 'variant_selected';
+  design_id: string;
+  variant_id: string;
+  style: string;
+}
+
+export interface RefinementStartedMessage {
+  type: 'refinement_started';
+  design_id: string;
+  parent_variant_id: string;
+  refinement_type: string;
+  timestamp: string;
+}
+
+export interface RefinementCompleteMessage {
+  type: 'refinement_complete';
+  design_id: string;
+  new_variant_id: string;
+  refinements_remaining: number;
+  timestamp: string;
+}
+
 export interface PongMessage {
   type: 'pong';
   timestamp: string;
@@ -85,6 +177,12 @@ export interface ErrorMessage {
 export type ServerMessage =
   | SessionResumedMessage
   | StateChangeMessage
+  | GenerationStartedMessage
+  | VariantReadyMessage
+  | GenerationCompleteMessage
+  | VariantSelectedMessage
+  | RefinementStartedMessage
+  | RefinementCompleteMessage
   | PongMessage
   | ErrorMessage
   | { type: string; [key: string]: unknown };

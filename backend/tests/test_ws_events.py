@@ -400,24 +400,23 @@ def test_ws_unknown_session_still_accepts(client: TestClient) -> None:
 
 
 def test_ws_state_restored_after_generate_then_reconnect(client: TestClient) -> None:
-    """After generating variants, reconnect still gets session_resumed (not an error).
-
-    NOTE: The current WS stub always returns state='greeting' and latest_design=None.
-    This test documents that contract — the snapshot is static until Sprint 6 wires
-    up full DB state loading. When that lands, update the assertions below.
-    """
+    """After generating variants, reconnect returns session_resumed with real design state."""
     _inject_providers(client)
-    session_id, design_id, _ = _create_session_with_design(client)
+    session_id, design_id, variants = _create_session_with_design(client)
 
     # reconnect after full generate pipeline
     with client.websocket_connect(f"/ws/{session_id}") as ws:
         msg = ws.receive_json()
 
-    # Core contract: server must respond with session_resumed, not an error
     assert msg["type"] == "session_resumed"
     assert msg["session_id"] == session_id
     assert msg["is_reconnect"] is True
-    # Sprint 0 stub: design data not loaded from DB yet
-    assert msg["latest_design"] is None
+    # Sprint 6: real DB state loaded — design and variants are present
+    assert msg["latest_design"] is not None
+    assert msg["latest_design"]["design_id"] == design_id
+    assert len(msg["latest_design"]["variants"]) == 4
+    # No recommendations generated yet
     assert msg["recommendations"] is None
     assert msg["order"] is None
+    # State inferred from data: variants present → preview
+    assert msg["state"] == "preview"

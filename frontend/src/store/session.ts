@@ -1,40 +1,105 @@
 import { create } from 'zustand';
 import {
+  DesignVariant,
   LatestDesign,
   ProductRecommendation,
   SessionState,
+  Story,
 } from '../types';
 
 interface SessionStore {
+  // Session identity
   sessionId: string | null;
   currentState: SessionState;
-  latestDesign: LatestDesign | null;
-  recommendations: ProductRecommendation[] | null;
   wsConnected: boolean;
+
+  // Story collection
+  storyText: string;
+  extractedStory: Story | null;
+
+  // Design pipeline
+  latestDesign: LatestDesign | null;
+  generatingProgress: number; // 0–4 variants received
+  totalVariants: number;
+
+  // Recommendations
+  recommendations: ProductRecommendation[] | null;
+
+  // Cart
+  selectedProductId: string | null;
+  selectedProduct: ProductRecommendation | null;
+
+  // Actions
   setSessionId: (id: string) => void;
   setState: (state: SessionState) => void;
-  setLatestDesign: (design: LatestDesign | null) => void;
-  setRecommendations: (recs: ProductRecommendation[] | null) => void;
   setWsConnected: (connected: boolean) => void;
+  setStoryText: (text: string) => void;
+  setExtractedStory: (story: Story | null) => void;
+  setLatestDesign: (design: LatestDesign | null) => void;
+  addVariant: (variant: DesignVariant) => void;
+  setGeneratingProgress: (n: number) => void;
+  setTotalVariants: (n: number) => void;
+  setSelectedVariantId: (id: string) => void;
+  setRecommendations: (recs: ProductRecommendation[] | null) => void;
+  selectProduct: (rec: ProductRecommendation) => void;
   reset: () => void;
 }
 
-export const useSessionStore = create<SessionStore>((set) => ({
+const INITIAL = {
   sessionId: null,
   currentState: SessionState.IDLE,
-  latestDesign: null,
-  recommendations: null,
   wsConnected: false,
+  storyText: '',
+  extractedStory: null,
+  latestDesign: null,
+  generatingProgress: 0,
+  totalVariants: 4,
+  recommendations: null,
+  selectedProductId: null,
+  selectedProduct: null,
+};
+
+export const useSessionStore = create<SessionStore>((set, get) => ({
+  ...INITIAL,
+
   setSessionId: (id) => set({ sessionId: id }),
   setState: (state) => set({ currentState: state }),
-  setLatestDesign: (design) => set({ latestDesign: design }),
-  setRecommendations: (recs) => set({ recommendations: recs }),
   setWsConnected: (connected) => set({ wsConnected: connected }),
-  reset: () =>
-    set({
-      sessionId: null,
-      currentState: SessionState.IDLE,
-      latestDesign: null,
-      recommendations: null,
+  setStoryText: (text) => set({ storyText: text }),
+  setExtractedStory: (story) => set({ extractedStory: story }),
+
+  setLatestDesign: (design) => set({ latestDesign: design }),
+
+  addVariant: (variant) =>
+    set((s) => {
+      if (!s.latestDesign) return s;
+      const exists = s.latestDesign.variants.some(
+        (v) => v.variant_id === variant.variant_id,
+      );
+      if (exists) return s;
+      return {
+        latestDesign: {
+          ...s.latestDesign,
+          variants: [...s.latestDesign.variants, variant],
+        },
+        generatingProgress: s.generatingProgress + 1,
+      };
     }),
+
+  setGeneratingProgress: (n) => set({ generatingProgress: n }),
+  setTotalVariants: (n) => set({ totalVariants: n }),
+
+  setSelectedVariantId: (id) =>
+    set((s) => ({
+      latestDesign: s.latestDesign
+        ? { ...s.latestDesign, selected_variant_id: id }
+        : s.latestDesign,
+    })),
+
+  setRecommendations: (recs) => set({ recommendations: recs }),
+
+  selectProduct: (rec) =>
+    set({ selectedProductId: rec.product_id, selectedProduct: rec }),
+
+  reset: () => set({ ...INITIAL, sessionId: get().sessionId }),
 }));
