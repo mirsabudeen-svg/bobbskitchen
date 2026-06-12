@@ -36,6 +36,13 @@ interface SessionStore {
   // Cart
   selectedProductId: string | null;
   selectedProduct: ProductRecommendation | null;
+  quantity: number;
+  nameTagText: string;
+
+  // Checkout / order
+  customerName: string;
+  customerPhone: string;
+  orderId: string | null;
 
   // UX state
   pipelineError: string | null;
@@ -54,6 +61,11 @@ interface SessionStore {
   setSelectedVariantId: (id: string) => void;
   setRecommendations: (recs: ProductRecommendation[] | null) => void;
   selectProduct: (rec: ProductRecommendation) => void;
+  setQuantity: (n: number) => void;
+  setNameTagText: (text: string) => void;
+  setCustomerName: (name: string) => void;
+  setCustomerPhone: (phone: string) => void;
+  setOrderId: (id: string) => void;
   setPipelineError: (msg: string | null) => void;
   setPendingReconnect: (data: PendingReconnect | null) => void;
   applyReconnect: () => void;
@@ -74,6 +86,11 @@ const INITIAL = {
   recommendations: null,
   selectedProductId: null,
   selectedProduct: null,
+  quantity: 1,
+  nameTagText: '',
+  customerName: '',
+  customerPhone: '',
+  orderId: null,
   pipelineError: null,
   pendingReconnect: null,
 };
@@ -121,6 +138,12 @@ export const useSessionStore = create<SessionStore>()(
 
   selectProduct: (rec) =>
     set({ selectedProductId: rec.product_id, selectedProduct: rec }),
+
+  setQuantity: (n) => set({ quantity: Math.max(1, Math.min(10, n)) }),
+  setNameTagText: (text) => set({ nameTagText: text.slice(0, 15) }),
+  setCustomerName: (name) => set({ customerName: name }),
+  setCustomerPhone: (phone) => set({ customerPhone: phone }),
+  setOrderId: (id) => set({ orderId: id }),
 
   setPipelineError: (msg) => set({ pipelineError: msg }),
 

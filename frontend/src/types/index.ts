@@ -163,6 +163,39 @@ export interface RefinementCompleteMessage {
   timestamp: string;
 }
 
+// ---------------------------------------------------------------------------
+// Order types
+// ---------------------------------------------------------------------------
+
+export interface OrderItemResponse {
+  order_item_id: string;
+  design_variant_id: string;
+  product_id: string;
+  product_name: string;
+  size: string | null;
+  color: string;
+  quantity: number;
+  unit_price_paise: number;
+  subtotal_paise: number;
+}
+
+export interface OrderResponse {
+  order_id: string;
+  session_id: string;
+  order_status: string;
+  payment_status: string;
+  customer_name: string;
+  customer_phone: string | null;
+  name_tag_text: string | null;
+  subtotal_paise: number;
+  tax_paise: number;
+  total_paise: number;
+  total_rupees: number;
+  currency: string;
+  created_at: string;
+  items?: OrderItemResponse[];
+}
+
 export interface PongMessage {
   type: 'pong';
   timestamp: string;

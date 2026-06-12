@@ -214,6 +214,29 @@ export const api = {
     request<RecommendationResponse>(`/designs/${designId}/recommend`, {
       method: 'POST',
     }),
+
+  createOrder: (body: {
+    session_id: string;
+    customer_name: string;
+    customer_phone?: string;
+    name_tag_text?: string;
+    items: Array<{
+      design_variant_id: string;
+      product_id: string;
+      product_name: string;
+      size: string | null;
+      color: string;
+      quantity: number;
+      unit_price_paise: number;
+    }>;
+  }) =>
+    request<import('../types').OrderResponse>('/orders', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getOrder: (orderId: string) =>
+    request<import('../types').OrderResponse>(`/orders/${orderId}`),
 };
 
 export function wsUrl(wsPath: string): string {

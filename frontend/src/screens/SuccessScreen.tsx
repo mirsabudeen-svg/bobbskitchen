@@ -5,8 +5,12 @@ import { SessionState } from '../types';
 
 export function SuccessScreen() {
   const selectedProduct = useSessionStore((s) => s.selectedProduct);
+  const orderId = useSessionStore((s) => s.orderId);
+  const customerName = useSessionStore((s) => s.customerName);
   const reset = useSessionStore((s) => s.reset);
   const setState = useSessionStore((s) => s.setState);
+
+  const orderRef = orderId ? orderId.slice(-6).toUpperCase() : null;
 
   function handleReset() {
     reset();
@@ -20,8 +24,9 @@ export function SuccessScreen() {
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.5 }}
-      className="min-h-screen bg-bobb-green flex flex-col items-center justify-center gap-10 px-8"
+      className="min-h-screen bg-bobb-green flex flex-col items-center justify-center gap-8 px-8"
     >
+      {/* Gold checkmark */}
       <motion.div
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
@@ -40,7 +45,7 @@ export function SuccessScreen() {
         className="text-center"
       >
         <h2 className="font-display text-white text-5xl font-bold mb-3">
-          Order Complete!
+          {customerName ? `Thank you, ${customerName.split(' ')[0]}!` : 'Order Complete!'}
         </h2>
         {selectedProduct && (
           <p className="font-body text-white/70 text-xl">
@@ -48,9 +53,29 @@ export function SuccessScreen() {
           </p>
         )}
         <p className="font-body text-white/50 text-base mt-2">
-          Thank you for your BOBB story
+          Thank you for sharing your Kerala story
         </p>
       </motion.div>
+
+      {/* Order reference for pick-up */}
+      {orderRef && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
+          className="bg-white/15 rounded-2xl px-8 py-4 text-center"
+        >
+          <p className="font-body text-white/60 text-xs uppercase tracking-widest mb-1">
+            Your order number
+          </p>
+          <p className="font-display text-bobb-gold text-4xl font-bold tracking-widest">
+            #{orderRef}
+          </p>
+          <p className="font-body text-white/50 text-xs mt-1">
+            Quote this when collecting your garment
+          </p>
+        </motion.div>
+      )}
 
       <motion.div
         initial={{ opacity: 0 }}
