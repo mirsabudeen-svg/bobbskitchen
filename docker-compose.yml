@@ -65,6 +65,25 @@ services:
       - backend
       - frontend
 
+  # Cloudflare Tunnel — zero-config HTTPS, no open inbound ports required.
+  # To enable:
+  #   1. Go to https://one.dash.cloudflare.com → Networks → Tunnels → Create tunnel
+  #   2. Copy the tunnel token and set CLOUDFLARE_TUNNEL_TOKEN in your .env
+  #   3. In the tunnel dashboard, add a Public Hostname:
+  #        Subdomain: <your-subdomain>   Domain: <your-zone>
+  #        Service:   http://nginx:80
+  # Leave CLOUDFLARE_TUNNEL_TOKEN blank to skip (tunnel container won't start).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - nginx
+    profiles:
+      - tunnel
+
 volumes:
   pgdata:
   designs_cache:

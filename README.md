@@ -81,6 +81,32 @@ Copy `backend/.env.example` to `.env` in the repo root (Docker reads it) and to 
 
 ---
 
+## HTTPS via Cloudflare Tunnel
+
+Cloudflare Tunnel gives you a public HTTPS URL with zero open inbound ports — no firewall rules, no TLS certificates to manage. Required for WhatsApp image delivery (`PUBLIC_MEDIA_BASE_URL`).
+
+**One-time setup (5 minutes):**
+
+1. Go to [Cloudflare Zero Trust](https://one.dash.cloudflare.com) → **Networks → Tunnels → Create a tunnel**
+2. Name it `bobb`, copy the **tunnel token**
+3. Add a **Public Hostname**:
+   - Subdomain: `bobb` (or anything)
+   - Domain: your Cloudflare-managed zone
+   - Service: `http://nginx:80`
+4. Set in your `.env`:
+   ```
+   CLOUDFLARE_TUNNEL_TOKEN=eyJ...your-token...
+   PUBLIC_MEDIA_BASE_URL=https://bobb.yourdomain.com
+   ```
+5. Start with the tunnel profile:
+   ```bash
+   docker compose --profile tunnel up -d
+   ```
+
+Without the `--profile tunnel` flag, the `cloudflared` container is skipped — the rest of the stack runs normally on LAN.
+
+---
+
 ## Architecture
 
 ```
